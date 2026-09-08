@@ -37,6 +37,7 @@ import (
 	"gogs.io/gogs/internal/form"
 	"gogs.io/gogs/internal/markup"
 	"gogs.io/gogs/internal/osx"
+	"gogs.io/gogs/internal/pages"
 	"gogs.io/gogs/internal/route"
 	"gogs.io/gogs/internal/route/admin"
 	apiv1 "gogs.io/gogs/internal/route/api/v1"
@@ -374,6 +375,9 @@ func Run(configPath string, portOverride int) error {
 						Post(bindIgnErr(form.AddSSHKey{}), repo.SettingsDeployKeysPost)
 					m.Post("/delete", repo.DeleteDeployKey)
 				})
+
+				m.Combo("/pages").Get(repo.SettingsPages).
+					Post(bindIgnErr(form.RepoPages{}), repo.SettingsPagesPost)
 			}, func(c *context.Context) {
 				c.Data["PageIsSettings"] = true
 			})
@@ -599,6 +603,14 @@ func Run(configPath string, portOverride int) error {
 		})
 	})
 
+	// Gogs Pages requests arrive on a dedicated domain and must never enter the
+	// application router, so wrap it before it is handed to the server. When the
+	// feature is disabled the wrapper is skipped entirely.
+	var rootHandler http.Handler = m
+	if conf.Server.PagesEnabled() {
+		rootHandler = pages.Handler(m)
+	}
+
 	// Flag for port number in case first time run conflict.
 	if portOverride > 0 {
 		port := strconv.Itoa(portOverride)
@@ -617,7 +629,7 @@ func Run(configPath string, portOverride int) error {
 
 	switch conf.Server.Protocol {
 	case "http":
-		err = http.ListenAndServe(listenAddr, m)
+		err = http.ListenAndServe(listenAddr, rootHandler)
 
 	case "https":
 		tlsMinVersion := tls.VersionTLS12
@@ -645,12 +657,12 @@ func Run(configPath string, portOverride int) error {
 					tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
 					tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
 				},
-			}, Handler: m,
+			}, Handler: rootHandler,
 		}
 		err = server.ListenAndServeTLS(conf.Server.CertFile, conf.Server.KeyFile)
 
 	case "fcgi":
-		err = fcgi.Serve(nil, m)
+		err = fcgi.Serve(nil, rootHandler)
 
 	case "unix":
 		if osx.Exist(listenAddr) {
@@ -671,7 +683,7 @@ func Run(configPath string, portOverride int) error {
 		if err = os.Chmod(listenAddr, conf.Server.UnixSocketMode); err != nil {
 			return errors.Wrap(err, "change permission of Unix domain socket")
 		}
-		err = http.Serve(listener, m)
+		err = http.Serve(listener, rootHandler)
 
 	default:
 		return errors.Newf("unexpected server protocol: %s", conf.Server.Protocol)

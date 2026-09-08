@@ -280,6 +280,13 @@ type ServerOpts struct {
 
 	LandingURL string `ini:"LANDING_URL"`
 
+	// Gogs Pages: the domain that serves repositories' published static sites.
+	// When empty, Gogs Pages is disabled entirely.
+	PagesDomain string `ini:"PAGES_DOMAIN"`
+	// The scheme used when composing a published site URL. Falls back to the
+	// scheme of EXTERNAL_URL when empty.
+	PagesProtocol string `ini:"PAGES_PROTOCOL"`
+
 	// Derived from other static values
 	URL            *url.URL    `ini:"-"` // Parsed URL object of ExternalURL.
 	Subpath        string      `ini:"-"` // Subpath found the ExternalURL. Should be empty when not found.
@@ -289,6 +296,22 @@ type ServerOpts struct {
 
 // Server settings
 var Server ServerOpts
+
+// PagesEnabled reports whether Gogs Pages has a serving domain configured.
+func (o *ServerOpts) PagesEnabled() bool {
+	return o.PagesDomain != ""
+}
+
+// PagesURLScheme returns the scheme to use when composing a published site URL.
+func (o *ServerOpts) PagesURLScheme() string {
+	if o.PagesProtocol != "" {
+		return o.PagesProtocol
+	}
+	if o.URL != nil {
+		return o.URL.Scheme
+	}
+	return "http"
+}
 
 type SSHOpts struct {
 	Disabled                     bool   `ini:"DISABLE_SSH"`

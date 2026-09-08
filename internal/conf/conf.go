@@ -113,6 +113,9 @@ func Init(customConf string) error {
 	Server.Subpath = strings.TrimRight(Server.URL.Path, "/")
 	Server.SubpathDepth = strings.Count(Server.Subpath, "/")
 
+	Server.PagesDomain = strings.ToLower(strings.TrimSpace(Server.PagesDomain))
+	Server.PagesProtocol = strings.ToLower(strings.TrimSpace(Server.PagesProtocol))
+
 	unixSocketMode, err := strconv.ParseUint(Server.UnixSocketPermission, 8, 32)
 	if err != nil {
 		return errors.Wrapf(err, "parse '[server] UNIX_SOCKET_PERMISSION' %q", Server.UnixSocketPermission)

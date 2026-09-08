@@ -1,0 +1,65 @@
+{{template "base/head" .}}
+<div class="repository settings pages">
+	{{template "repo/header" .}}
+	<div class="ui container">
+		<div class="ui grid">
+			{{template "repo/settings/navbar" .}}
+			<div class="twelve wide column content">
+				{{template "base/alert" .}}
+				<h4 class="ui top attached header">
+					{{.i18n.Tr "repo.settings.pages"}}
+				</h4>
+				<div class="ui attached segment">
+					<p>{{.i18n.Tr "repo.settings.pages_desc"}}</p>
+
+					{{if not .PagesEnabled}}
+						<div class="ui info message">
+							{{.i18n.Tr "repo.settings.pages_disabled_globally"}}
+						</div>
+					{{else}}
+						{{if and .PagesConfigEnabled .IsRepoPrivate}}
+							<div class="ui warning message text left">
+								{{.i18n.Tr "repo.settings.pages_private_warning"}}
+							</div>
+						{{end}}
+
+						{{if .PagesConfigEnabled}}
+							<div class="ui small message">
+								{{.i18n.Tr "repo.settings.pages_published_at"}}
+								<a href="{{.PagesPublishedURL}}" rel="noopener noreferrer" target="_blank">{{.PagesPublishedURL}}</a>
+							</div>
+						{{end}}
+
+						<form class="ui form" action="{{.Link}}" method="post">
+							<div class="field">
+								<div class="ui checkbox">
+									<input id="enable" name="enable" type="checkbox" {{if .PagesConfigEnabled}}checked{{end}}>
+									<label for="enable">{{.i18n.Tr "repo.settings.pages_enable"}}</label>
+								</div>
+							</div>
+							<div class="field">
+								<label for="branch">{{.i18n.Tr "repo.settings.pages_source_branch"}}</label>
+								<select id="branch" name="branch" class="ui dropdown">
+									{{range .Branches}}
+										<option value="{{.}}" {{if eq . $.PagesBranch}}selected{{end}}>{{.}}</option>
+									{{end}}
+								</select>
+							</div>
+							<div class="field">
+								<label for="dir">{{.i18n.Tr "repo.settings.pages_source_dir"}}</label>
+								<select id="dir" name="dir" class="ui dropdown">
+									<option value="/" {{if ne .PagesDir "/docs"}}selected{{end}}>/ (root)</option>
+									<option value="/docs" {{if eq .PagesDir "/docs"}}selected{{end}}>/docs</option>
+								</select>
+							</div>
+							<div class="field">
+								<button class="ui green button">{{.i18n.Tr "repo.settings.update"}}</button>
+							</div>
+						</form>
+					{{end}}
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+{{template "base/footer" .}}
