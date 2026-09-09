@@ -73,10 +73,35 @@ func GetDingtalkPayload(p apiv1types.WebhookPayloader, event HookEventType) (pay
 		payload = getDingtalkPullRequestPayload(p.(*apiv1types.WebhookPullRequestPayload))
 	case HookEventTypeRelease:
 		payload = getDingtalkReleasePayload(p.(*apiv1types.WebhookReleasePayload))
+	case HookEventTypeStatus:
+		payload = getDingtalkStatusPayload(p.(*apiv1types.WebhookStatusPayload))
 	default:
 		return nil, errors.Errorf("unexpected event %q", event)
 	}
 	return payload, nil
+}
+
+func getDingtalkStatusPayload(p *apiv1types.WebhookStatusPayload) *DingtalkPayload {
+	commitURL := p.Repository.HTMLURL + "/commit/" + p.SHA
+	linkURL := p.TargetURL
+	if linkURL == "" {
+		linkURL = commitURL
+	}
+
+	actionCard := NewDingtalkActionCard("View Build", linkURL)
+	actionCard.Text += "# Commit Status"
+	actionCard.Text += "\n- Repo: " + MarkdownLinkFormatter(p.Repository.HTMLURL, p.Repository.Name)
+	actionCard.Text += "\n- Commit: " + MarkdownLinkFormatter(commitURL, p.SHA[:7])
+	actionCard.Text += "\n- Context: " + p.Context
+	actionCard.Text += "\n- State: " + p.State
+	if p.Description != "" {
+		actionCard.Text += "\n- Description: " + p.Description
+	}
+
+	return &DingtalkPayload{
+		MsgType:    "actionCard",
+		ActionCard: actionCard,
+	}
 }
 
 func getDingtalkCreatePayload(p *apiv1types.WebhookCreatePayload) *DingtalkPayload {

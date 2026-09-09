@@ -163,6 +163,7 @@ type Webhook struct {
 	IssueComment bool
 	PullRequest  bool
 	Release      bool
+	Status       bool
 	Active       bool
 }
 

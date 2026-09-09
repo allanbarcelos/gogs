@@ -71,6 +71,7 @@ type HookEvents struct {
 	PullRequest  bool `json:"pull_request"`
 	IssueComment bool `json:"issue_comment"`
 	Release      bool `json:"release"`
+	Status       bool `json:"status"`
 }
 
 // HookEvent represents events that will delivery hook.
@@ -204,6 +205,12 @@ func (w *Webhook) HasReleaseEvent() bool {
 		(w.ChooseEvents && w.Release)
 }
 
+// HasStatusEvent returns true if hook enabled commit status event.
+func (w *Webhook) HasStatusEvent() bool {
+	return w.SendEverything ||
+		(w.ChooseEvents && w.Status)
+}
+
 type eventChecker struct {
 	checker func() bool
 	typ     HookEventType
@@ -220,6 +227,7 @@ func (w *Webhook) EventsArray() []string {
 		{w.HasPullRequestEvent, HookEventTypePullRequest},
 		{w.HasIssueCommentEvent, HookEventTypeIssueComment},
 		{w.HasReleaseEvent, HookEventTypeRelease},
+		{w.HasStatusEvent, HookEventTypeStatus},
 	}
 	for _, c := range eventCheckers {
 		if c.checker() {
@@ -414,6 +422,7 @@ const (
 	HookEventTypePullRequest  HookEventType = "pull_request"
 	HookEventTypeIssueComment HookEventType = "issue_comment"
 	HookEventTypeRelease      HookEventType = "release"
+	HookEventTypeStatus       HookEventType = "status"
 )
 
 // HookRequest represents hook task request information.
@@ -597,6 +606,10 @@ func prepareHookTasks(e Engine, repo *Repository, event HookEventType, p apiv1ty
 			}
 		case HookEventTypeRelease:
 			if !w.HasReleaseEvent() {
+				continue
+			}
+		case HookEventTypeStatus:
+			if !w.HasStatusEvent() {
 				continue
 			}
 		}

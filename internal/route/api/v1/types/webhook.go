@@ -156,3 +156,15 @@ type WebhookReleasePayload struct {
 }
 
 func (p *WebhookReleasePayload) JSONPayload() ([]byte, error) { return jsonPayload(p) }
+
+type WebhookStatusPayload struct {
+	SHA         string      `json:"sha"`
+	State       string      `json:"state"`
+	Context     string      `json:"context"`
+	Description string      `json:"description"`
+	TargetURL   string      `json:"target_url"`
+	Repository  *Repository `json:"repository"`
+	Sender      *User       `json:"sender"`
+}
+
+func (p *WebhookStatusPayload) JSONPayload() ([]byte, error) { return jsonPayload(p) }

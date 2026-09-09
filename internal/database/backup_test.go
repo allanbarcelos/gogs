@@ -27,7 +27,7 @@ func TestDumpAndImport(t *testing.T) {
 	}
 	t.Parallel()
 
-	const wantTables = 8
+	const wantTables = 9
 	if len(Tables) != wantTables {
 		t.Fatalf("New table has added (want %d got %d), please add new tests for the table and update this check", wantTables, len(Tables))
 	}
@@ -126,6 +126,29 @@ func setupDBToDump(t *testing.T, db *gorm.DB) {
 			RefName:      "main",
 			IsPrivate:    false,
 			CreatedUnix:  1588568886,
+		},
+
+		&CommitStatus{
+			ID:          1,
+			RepoID:      1,
+			CommitSHA:   "ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f",
+			State:       CommitStatusSuccess,
+			Context:     "jenkins/build",
+			TargetURL:   "https://ci.example.com/1",
+			Description: "Passed",
+			CreatorID:   1,
+			CreatedUnix: 1588568886,
+			UpdatedUnix: 1588568886,
+		},
+		&CommitStatus{
+			ID:          2,
+			RepoID:      1,
+			CommitSHA:   "ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f",
+			State:       CommitStatusRunning,
+			Context:     "jenkins/e2e",
+			CreatorID:   1,
+			CreatedUnix: 1588568886,
+			UpdatedUnix: 1588568886,
 		},
 
 		&EmailAddress{

@@ -5,6 +5,7 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/gogs/git-module"
+	log "unknwon.dev/clog/v2"
 
 	"gogs.io/gogs/internal/context"
 	"gogs.io/gogs/internal/database"
@@ -94,6 +95,18 @@ func createCommitStatus(c *context.APIContext, form types.CreateStatusOption) {
 		}
 		c.Error(err, "create commit status")
 		return
+	}
+
+	if err := database.PrepareWebhooks(c.Repo.Repository, database.HookEventTypeStatus, &types.WebhookStatusPayload{
+		SHA:         commitID,
+		State:       string(status.State),
+		Context:     status.Context,
+		Description: status.Description,
+		TargetURL:   status.TargetURL,
+		Repository:  c.Repo.Repository.APIFormatLegacy(nil),
+		Sender:      c.User.APIFormat(),
+	}); err != nil {
+		log.Error("Failed to prepare webhooks for %q: %v", database.HookEventTypeStatus, err)
 	}
 
 	c.JSON(http.StatusCreated, toCommitStatus(status, c.User))

@@ -10,6 +10,7 @@ import (
 
 	"gogs.io/gogs/internal/conf"
 	apiv1types "gogs.io/gogs/internal/route/api/v1/types"
+	"gogs.io/gogs/internal/tool"
 )
 
 type SlackMeta struct {
@@ -283,6 +284,15 @@ func getSlackReleasePayload(p *apiv1types.WebhookReleasePayload) *SlackPayload {
 	}
 }
 
+func getSlackStatusPayload(p *apiv1types.WebhookStatusPayload) *SlackPayload {
+	repoLink := SlackLinkFormatter(p.Repository.HTMLURL, p.Repository.Name)
+	commitLink := SlackLinkFormatter(p.Repository.HTMLURL+"/commit/"+p.SHA, tool.ShortSHA1(p.SHA))
+	text := fmt.Sprintf("[%s] %s is %s on %s", repoLink, p.Context, p.State, commitLink)
+	return &SlackPayload{
+		Text: text,
+	}
+}
+
 func GetSlackPayload(p apiv1types.WebhookPayloader, event HookEventType, meta string) (payload *SlackPayload, err error) {
 	slack := &SlackMeta{}
 	if err := json.Unmarshal([]byte(meta), slack); err != nil {
@@ -306,6 +316,8 @@ func GetSlackPayload(p apiv1types.WebhookPayloader, event HookEventType, meta st
 		payload = getSlackPullRequestPayload(p.(*apiv1types.WebhookPullRequestPayload), slack)
 	case HookEventTypeRelease:
 		payload = getSlackReleasePayload(p.(*apiv1types.WebhookReleasePayload))
+	case HookEventTypeStatus:
+		payload = getSlackStatusPayload(p.(*apiv1types.WebhookStatusPayload))
 	default:
 		return nil, errors.Errorf("unexpected event %q", event)
 	}

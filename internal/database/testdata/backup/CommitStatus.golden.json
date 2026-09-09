@@ -1,0 +1,2 @@
+{"ID":1,"RepoID":1,"CommitSHA":"ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f","State":"success","Context":"jenkins/build","TargetURL":"https://ci.example.com/1","Description":"Passed","CreatorID":1,"CreatedUnix":1588568886,"UpdatedUnix":1588568886}
+{"ID":2,"RepoID":1,"CommitSHA":"ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f","State":"running","Context":"jenkins/e2e","TargetURL":"","Description":"","CreatorID":1,"CreatedUnix":1588568886,"UpdatedUnix":1588568886}
