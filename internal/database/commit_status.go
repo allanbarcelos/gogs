@@ -526,8 +526,11 @@ func ParseStatusContexts(raw string) []string {
 // UnmetRequiredStatusChecks returns required contexts that are missing or not
 // success on the given commit. An empty required list means there is no gate.
 func (s *CommitStatusesStore) UnmetRequiredStatusChecks(ctx context.Context, repoID int64, commitSHA string, required []string) ([]string, error) {
-	if len(required) == 0 || commitSHA == "" {
+	if len(required) == 0 {
 		return nil, nil
+	}
+	if commitSHA == "" {
+		return append([]string(nil), required...), nil
 	}
 	latest, err := s.Latest(ctx, repoID, commitSHA)
 	if err != nil {

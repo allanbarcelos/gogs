@@ -219,7 +219,10 @@ func (pr *PullRequest) Merge(doer *User, baseGitRepo *git.Repository, mergeStyle
 	if protect, err := GetProtectBranchOfRepoByName(pr.BaseRepo.ID, pr.BaseBranch); err == nil && protect.Protected {
 		required := ParseStatusContexts(protect.RequiredStatusContexts)
 		if len(required) > 0 {
-			sha, _ := headGitRepo.BranchCommitID(pr.HeadBranch)
+			sha, shaErr := headGitRepo.BranchCommitID(pr.HeadBranch)
+			if shaErr != nil {
+				return errors.Wrap(shaErr, "resolve pull request head commit")
+			}
 			unmet, checkErr := Handle.CommitStatuses().UnmetRequiredStatusChecks(ctx, pr.BaseRepo.ID, sha, required)
 			if checkErr != nil {
 				return errors.Wrap(checkErr, "required status checks")
