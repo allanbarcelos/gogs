@@ -542,6 +542,7 @@ func viewIssue(c *context.Context, isPullList bool) {
 		if c.Written() {
 			return
 		}
+		preparePullCommitStatus(c, issue)
 	}
 
 	// Metas.

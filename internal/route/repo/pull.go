@@ -246,6 +246,47 @@ func PrepareViewPullInfo(c *context.Context, issue *database.Issue) *gitx.PullRe
 	return prMeta
 }
 
+// preparePullCommitStatus loads the latest commit status per context for the
+// head commit of a pull request, along with the combined state, and stashes
+// them for the conversation template.
+func preparePullCommitStatus(c *context.Context, issue *database.Issue) {
+	repo := c.Repo.Repository
+	if !repo.EnableCommitStatus || !issue.IsPull {
+		return
+	}
+	pull := issue.PullRequest
+
+	var sha string
+	switch {
+	case pull.HasMerged:
+		sha = pull.MergedCommitID
+	case pull.HeadRepo != nil:
+		if headGitRepo, err := git.Open(pull.HeadRepo.RepoPath()); err == nil {
+			sha, _ = headGitRepo.BranchCommitID(pull.HeadBranch)
+		}
+	}
+	if sha == "" {
+		return
+	}
+
+	statuses, err := database.Handle.CommitStatuses().Latest(c.Req.Context(), repo.ID, sha)
+	if err != nil {
+		log.Error("Failed to load commit statuses for pull request head %q: %v", sha, err)
+		return
+	}
+	if len(statuses) == 0 {
+		return
+	}
+
+	states := make([]database.CommitStatusState, len(statuses))
+	for i, s := range statuses {
+		states[i] = s.State
+	}
+	c.Data["CommitStatusHeadSHA"] = sha
+	c.Data["CommitStatusState"] = string(database.CombineCommitStatusStates(states...))
+	c.Data["CommitStatuses"] = statuses
+}
+
 func ViewPullCommits(c *context.Context) {
 	c.Data["PageIsPullList"] = true
 	c.Data["PageIsPullCommits"] = true
