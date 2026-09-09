@@ -62,6 +62,17 @@ func NewContext() {
 			go database.DeleteOldRepositoryArchives()
 		}
 	}
+	if conf.Cron.CommitStatusCleanup.Enabled {
+		entry, err = c.AddFunc("Commit status cleanup", conf.Cron.CommitStatusCleanup.Schedule, database.CleanupCommitStatuses)
+		if err != nil {
+			log.Fatal("Cron.(commit status cleanup): %v", err)
+		}
+		if conf.Cron.CommitStatusCleanup.RunAtStart {
+			entry.Prev = time.Now()
+			entry.ExecTimes++
+			go database.CleanupCommitStatuses()
+		}
+	}
 	c.Start()
 }
 

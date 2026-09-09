@@ -11,6 +11,7 @@ import (
 
 	"gogs.io/gogs/internal/conf"
 	apiv1types "gogs.io/gogs/internal/route/api/v1/types"
+	"gogs.io/gogs/internal/tool"
 )
 
 type DiscordEmbedFooterObject struct {
@@ -367,6 +368,21 @@ func getDiscordReleasePayload(p *apiv1types.WebhookReleasePayload) *DiscordPaylo
 	}
 }
 
+func getDiscordStatusPayload(p *apiv1types.WebhookStatusPayload) *DiscordPayload {
+	repoLink := DiscordLinkFormatter(p.Repository.HTMLURL, p.Repository.Name)
+	commitLink := DiscordLinkFormatter(p.Repository.HTMLURL+"/commit/"+p.SHA, tool.ShortSHA1(p.SHA))
+	content := fmt.Sprintf("[%s] %s is %s on %s", repoLink, p.Context, p.State, commitLink)
+	if p.Description != "" {
+		content += ": " + p.Description
+	}
+	return &DiscordPayload{
+		Embeds: []*DiscordEmbedObject{{
+			Description: content,
+			URL:         p.TargetURL,
+		}},
+	}
+}
+
 func GetDiscordPayload(p apiv1types.WebhookPayloader, event HookEventType, meta string) (payload *DiscordPayload, err error) {
 	slack := &SlackMeta{}
 	if err := json.Unmarshal([]byte(meta), slack); err != nil {
@@ -390,6 +406,8 @@ func GetDiscordPayload(p apiv1types.WebhookPayloader, event HookEventType, meta 
 		payload = getDiscordPullRequestPayload(p.(*apiv1types.WebhookPullRequestPayload), slack)
 	case HookEventTypeRelease:
 		payload = getDiscordReleasePayload(p.(*apiv1types.WebhookReleasePayload))
+	case HookEventTypeStatus:
+		payload = getDiscordStatusPayload(p.(*apiv1types.WebhookStatusPayload))
 	default:
 		return nil, errors.Errorf("unexpected event %q", event)
 	}

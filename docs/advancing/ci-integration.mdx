@@ -1,0 +1,136 @@
+---
+title: "CI integration"
+description: "Show external build results in the repository Builds tab"
+icon: "circle-check"
+---
+
+Gogs does not run builds. It stores build results reported by an external CI
+system, such as Jenkins, and shows them in the repository **Builds** tab, next
+to each commit, and on the pull request page.
+
+The flow has two directions:
+
+1. **Trigger.** Gogs sends a webhook on push and pull request events. Your CI
+   system consumes it and runs the build. This already works with the standard
+   Gogs webhook.
+2. **Report back.** Your CI system calls the Gogs commit status API to record
+   the build state against the commit. This is the part you wire up below.
+
+## Enable the feature
+
+The Builds tab appears when `[repository.commit_status] ENABLED` is `true`
+(the default) and the repository has commit statuses turned on in its settings.
+
+```ini
+[repository.commit_status]
+ENABLED = true
+MAX_CONTEXTS_PER_COMMIT = 20
+MAX_ATTEMPTS_PER_CONTEXT = 20
+RETENTION_DAYS = 90
+```
+
+## Get the CI secret
+
+Each repository has a per-repository **CI secret**. It is minted when the
+repository is created with Builds on, or when Builds is turned on later. The
+value is stored encrypted with the instance `SECRET_KEY`. Open **Settings**,
+scroll to **CI secret**, and copy it. Use **Regenerate** to rotate it; the old
+value stops working immediately.
+
+No user account and no personal access token are involved. The secret only
+authorizes reporting statuses to that one repository.
+
+## Report a status
+
+```
+POST /api/v1/repos/:owner/:repo/statuses/:sha
+X-Gogs-Signature: sha256=<HMAC-SHA256 of the raw body, keyed by the CI secret>
+Content-Type: application/json
+
+{
+  "state": "success",
+  "target_url": "https://jenkins.example.com/job/acme/142/",
+  "description": "Passed in 3m20s",
+  "context": "jenkins/build"
+}
+```
+
+- Authentication is the `X-Gogs-Signature` header: the hex HMAC-SHA256 of the
+  exact request body, keyed by the CI secret, optionally prefixed with
+  `sha256=`. This is the same signature scheme Gogs uses for outgoing webhooks.
+- A write-scoped access token in `Authorization: token <PAT>` is also accepted,
+  for callers that prefer a user identity.
+- `:sha` accepts a full or short commit SHA, a branch name, or a tag name. It
+  is resolved to the commit before storage.
+- `state` is one of `pending`, `running`, `success`, `failure`, `error`.
+  `running` is a Gogs extension; a client that only knows the GitHub set never
+  sends it and everything still works.
+- `context` identifies the check, for example `jenkins/build` or `jenkins/e2e`.
+  Reporting the same context again adds a new attempt; the most recent one is
+  shown. Statuses reported with the secret are attributed to `ci`.
+
+## Required status checks
+
+On a protected branch, list the contexts that must be `success` before a pull
+request can merge (Settings, Branches, then the branch). Merge is refused until
+every listed context has reported success on the pull request head.
+
+Read them back with:
+
+```
+GET /api/v1/repos/:owner/:repo/commits/:sha/statuses   # every attempt, newest first
+GET /api/v1/repos/:owner/:repo/commits/:sha/status     # combined state per context
+```
+
+## Jenkins pipeline example
+
+Store the repository CI secret as the `GOGS_CI_SECRET` credential. No plugin is
+needed; a `curl` in a `post` block is enough.
+
+```groovy
+void gogsStatus(String state, String desc) {
+  def body = groovy.json.JsonOutput.toJson([
+    state: state, context: 'jenkins/build',
+    target_url: env.BUILD_URL, description: desc,
+  ])
+  writeFile file: '.gogs-status.json', text: body
+  def sig = sh(
+    script: "openssl dgst -sha256 -hmac \"\$GOGS_CI_SECRET\" -r .gogs-status.json | cut -d' ' -f1",
+    returnStdout: true,
+  ).trim()
+  sh """
+    curl -fsS -X POST \
+      -H 'X-Gogs-Signature: sha256=${sig}' \
+      -H 'Content-Type: application/json' \
+      --data-binary @.gogs-status.json \
+      ${env.GOGS_URL}/api/v1/repos/${env.REPO}/statuses/${env.GIT_COMMIT}
+  """
+}
+
+pipeline {
+  agent any
+  environment {
+    GOGS_CI_SECRET = credentials('gogs-ci-secret')
+    GOGS_URL       = 'https://gogs.example.com'
+    REPO           = 'acme/website'
+  }
+  stages {
+    stage('notify') { steps { script { gogsStatus('pending', 'Build queued') } } }
+    stage('build')  { steps { script { gogsStatus('running', 'Building'); sh 'make build' } } }
+  }
+  post {
+    success  { script { gogsStatus('success', "Passed in ${currentBuild.durationString}") } }
+    failure  { script { gogsStatus('failure', 'Build failed') } }
+    unstable { script { gogsStatus('error',   'Tests unstable') } }
+  }
+}
+```
+
+Sign the exact bytes you send: build the JSON once, sign that file, and post it
+with `--data-binary @file` so the body the server verifies is byte-for-byte what
+you signed.
+
+## Chain notifications
+
+Add a webhook with the **Commit status** event to forward every status change
+to Slack, Discord, Dingtalk, or a custom endpoint.

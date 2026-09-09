@@ -13,6 +13,7 @@ export interface RepoHeaderData {
   issuesEnabled: boolean;
   pullRequestsEnabled: boolean;
   wikiEnabled: boolean;
+  commitStatusEnabled: boolean;
   watchCount: number;
   starCount: number;
   forkCount: number;
@@ -34,6 +35,87 @@ export function repoHeaderQuery(owner: string, name: string) {
       if (!res.ok) throw await loaderResponseError(res);
       return (await res.json()) as RepoHeaderData;
     },
+  });
+}
+
+export type CommitStatusState = "pending" | "running" | "success" | "failure" | "error";
+
+export interface BuildStatus {
+  id: number;
+  state: CommitStatusState;
+  context: string;
+  description: string;
+  targetURL: string;
+  creator?: string;
+  created: string;
+}
+
+export interface BuildGroup {
+  sha: string;
+  state: CommitStatusState | "";
+  statuses: BuildStatus[];
+}
+
+export interface RepoBuildsData {
+  enabled: boolean;
+  groups: BuildGroup[];
+}
+
+export interface CommitStatusesData {
+  sha: string;
+  state: CommitStatusState | "";
+  latest: BuildStatus[];
+  attempts: BuildStatus[];
+}
+
+// While any status is still pending or running, poll so the page reflects the
+// build finishing without a manual reload.
+const BUILD_POLL_MS = 15_000;
+const BUILD_POLL_MAX_MS = 30 * 60 * 1000;
+
+function isInFlight(state: CommitStatusState | ""): boolean {
+  return state === "pending" || state === "running";
+}
+
+export function repoBuildsQuery(owner: string, name: string) {
+  return queryOptions({
+    queryKey: ["repo", owner, name, "builds"] as const,
+    queryFn: async ({ signal }) => {
+      const res = await fetch(subUrl(`/api/web/${owner}/${name}/builds`), {
+        credentials: "same-origin",
+        signal,
+      });
+      if (!res.ok) throw await loaderResponseError(res);
+      return (await res.json()) as RepoBuildsData;
+    },
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data || !data.groups.some((g) => isInFlight(g.state))) return false;
+      if (query.state.dataUpdateCount * BUILD_POLL_MS >= BUILD_POLL_MAX_MS) return false;
+      return BUILD_POLL_MS;
+    },
+    refetchIntervalInBackground: false,
+  });
+}
+
+export function repoCommitStatusesQuery(owner: string, name: string, sha: string) {
+  return queryOptions({
+    queryKey: ["repo", owner, name, "commit", sha, "statuses"] as const,
+    queryFn: async ({ signal }) => {
+      const res = await fetch(subUrl(`/api/web/${owner}/${name}/commit/${sha}/statuses`), {
+        credentials: "same-origin",
+        signal,
+      });
+      if (!res.ok) throw await loaderResponseError(res);
+      return (await res.json()) as CommitStatusesData;
+    },
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data || !data.latest.some((s) => isInFlight(s.state))) return false;
+      if (query.state.dataUpdateCount * BUILD_POLL_MS >= BUILD_POLL_MAX_MS) return false;
+      return BUILD_POLL_MS;
+    },
+    refetchIntervalInBackground: false,
   });
 }
 

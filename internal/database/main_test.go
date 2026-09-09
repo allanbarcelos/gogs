@@ -34,6 +34,10 @@ func TestMain(m *testing.M) {
 	// NOTE: AutoMigrate does not respect logger passed in gorm.Config.
 	logger.Default = logger.Default.LogMode(level)
 
+	if conf.Security.SecretKey == "" {
+		conf.Security.SecretKey = "test-secret-key"
+	}
+
 	switch os.Getenv("GOGS_DATABASE_TYPE") {
 	case "mysql":
 		conf.UseMySQL = true

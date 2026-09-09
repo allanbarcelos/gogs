@@ -102,6 +102,16 @@
 				</div>
 			</div>
 		</div>
+		<!-- Status -->
+		<div class="seven wide column">
+			<div class="field">
+				<div class="ui checkbox">
+					<input class="hidden" name="status" type="checkbox" tabindex="0" {{if .Webhook.Status}}checked{{end}}>
+					<label>{{.i18n.Tr "repo.settings.event_status"}}</label>
+					<span class="help">{{.i18n.Tr "repo.settings.event_status_desc"}}</span>
+				</div>
+			</div>
+		</div>
 	</div>
 </div>
 

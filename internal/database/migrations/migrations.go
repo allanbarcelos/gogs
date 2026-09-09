@@ -59,6 +59,12 @@ var migrations = []Migration{
 	// on v22. Let's make a noop v22 to make sure every instance will not miss a
 	// real future migration.
 	NewMigration("noop", func(*gorm.DB) error { return nil }),
+	// v22 -> v23:v0.15.0
+	NewMigration("add commit_status.creator_name", addCommitStatusCreatorName),
+	// v23 -> v24:v0.15.0
+	NewMigration("mint commit status secrets for existing repositories", backfillCommitStatusSecrets),
+	// v24 -> v25:v0.15.0
+	NewMigration("encrypt CI secrets and leave existing repositories' Builds tab off", encryptCommitStatusSecretsAndDisableExisting),
 }
 
 var errMigrationSkipped = errors.New("the migration has been skipped")

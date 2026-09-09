@@ -2,8 +2,10 @@ import type { QueryClient } from "@tanstack/react-query";
 import { type AnyRoute, createRoute, notFound } from "@tanstack/react-router";
 
 import { LoaderResponseError, loaderResponseError } from "@/lib/loader-error";
-import { repoHeaderQuery } from "@/lib/queries/repo";
+import { repoBuildsQuery, repoCommitStatusesQuery, repoHeaderQuery } from "@/lib/queries/repo";
 import { subUrl } from "@/lib/url";
+import { RepoBuildDetail } from "@/pages/repo/BuildDetail";
+import { RepoBuilds } from "@/pages/repo/Builds";
 import { RepoCommit, type RepoCommitPage } from "@/pages/repo/Commit";
 import { type RepoCommitSearch, validateRepoCommitSearch } from "@/pages/repo/Commit.search";
 
@@ -69,5 +71,31 @@ export function createRepoRoutes(rootRoute: AnyRoute) {
     component: RepoCommit,
   });
 
-  return [repoCommitRoute];
+  const repoBuildsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/$owner/$repo/builds",
+    loader: async ({ params, context }) => {
+      const routerContext = context as RouterContext;
+      await Promise.all([
+        routerContext.queryClient.ensureQueryData(repoHeaderQuery(params.owner, params.repo)),
+        routerContext.queryClient.ensureQueryData(repoBuildsQuery(params.owner, params.repo)),
+      ]);
+    },
+    component: RepoBuilds,
+  });
+
+  const repoBuildDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/$owner/$repo/builds/$sha",
+    loader: async ({ params, context }) => {
+      const routerContext = context as RouterContext;
+      await Promise.all([
+        routerContext.queryClient.ensureQueryData(repoHeaderQuery(params.owner, params.repo)),
+        routerContext.queryClient.ensureQueryData(repoCommitStatusesQuery(params.owner, params.repo, params.sha)),
+      ]);
+    },
+    component: RepoBuildDetail,
+  });
+
+  return [repoCommitRoute, repoBuildsRoute, repoBuildDetailRoute];
 }

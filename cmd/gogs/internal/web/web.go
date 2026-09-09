@@ -873,13 +873,17 @@ func renderIndex(index []byte, wc context.WebContext) ([]byte, error) {
 
 	pairs := []string{
 		"{{.WebContext}}", script,
+		// Vite emits the entrypoint with a relative base ("./assets/..."). A
+		// full-page load of a nested SPA route (e.g. /owner/repo/builds) would
+		// resolve that against the current path and 404. Anchor it to the site
+		// root, prefixed by the subpath for non-root mounts.
+		`src="./assets/`, `src="` + wc.SubURL + `/assets/`,
+		`href="./assets/`, `href="` + wc.SubURL + `/assets/`,
 	}
 	if wc.SubURL != "" {
-		// Prefix entrypoint paths with the subpath for non-root mounts. Other
-		// bundled assets stay relative to the entrypoint that references them.
+		// Other bundled assets stay relative to the entrypoint that references
+		// them; only the dev-server and static image paths need the prefix.
 		pairs = append(pairs,
-			`src="./assets/`, `src="`+wc.SubURL+`/assets/`,
-			`href="./assets/`, `href="`+wc.SubURL+`/assets/`,
 			`src="/src/`, `src="`+wc.SubURL+`/src/`,
 			`href="/img/`, `href="`+wc.SubURL+`/img/`,
 		)

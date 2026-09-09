@@ -55,6 +55,29 @@ Indexes:
 	"idx_action_user_id" (user_id)
 ```
 
+# Table "commit_status"
+
+```
+    Field    |    Column    |      PostgreSQL       |         MySQL         |        SQLite3        
+-------------+--------------+-----------------------+-----------------------+-----------------------
+ ID          | id           | BIGSERIAL             | BIGINT AUTO_INCREMENT | INTEGER AUTOINCREMENT 
+ RepoID      | repo_id      | BIGINT NOT NULL       | BIGINT NOT NULL       | INTEGER NOT NULL      
+ CommitSHA   | commit_sha   | VARCHAR(40) NOT NULL  | VARCHAR(40) NOT NULL  | VARCHAR(40) NOT NULL  
+ State       | state        | VARCHAR(20) NOT NULL  | VARCHAR(20) NOT NULL  | VARCHAR(20) NOT NULL  
+ Context     | context      | VARCHAR(191) NOT NULL | VARCHAR(191) NOT NULL | VARCHAR(191) NOT NULL 
+ TargetURL   | target_url   | TEXT                  | LONGTEXT              | TEXT                  
+ Description | description  | TEXT                  | LONGTEXT              | TEXT                  
+ CreatorID   | creator_id   | BIGINT NOT NULL       | BIGINT NOT NULL       | INTEGER NOT NULL      
+ CreatorName | creator_name | TEXT                  | LONGTEXT              | TEXT                  
+ CreatedUnix | created_unix | BIGINT                | BIGINT                | INTEGER               
+ UpdatedUnix | updated_unix | BIGINT                | BIGINT                | INTEGER               
+
+Primary keys: id
+Indexes: 
+	"commit_status_repo_commit" (repo_id, commit_sha)
+	"commit_status_repo_commit_context" (repo_id, commit_sha, context)
+```
+
 # Table "email_address"
 
 ```

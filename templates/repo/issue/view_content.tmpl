@@ -147,6 +147,30 @@
 
 			{{end}}
 
+			{{if and .Issue.IsPull .CommitStatusState}}
+				<div class="comment merge box">
+					<a class="avatar text
+					{{if or (eq .CommitStatusState "failure") (eq .CommitStatusState "error")}}red
+					{{else if eq .CommitStatusState "success"}}green
+					{{else}}yellow{{end}}"><span class="mega-octicon octicon-check"></span></a>
+					<div class="content">
+						<div class="ui merge segment">
+							<div class="item"><strong>{{$.i18n.Tr "repo.pulls.checks_title"}}</strong></div>
+							{{range .CommitStatuses}}
+								<div class="item">
+									{{if or (eq .State "failure") (eq .State "error")}}<span class="octicon octicon-x text red"></span>
+									{{else if eq .State "success"}}<span class="octicon octicon-check text green"></span>
+									{{else}}<span class="octicon octicon-primitive-dot text yellow"></span>{{end}}
+									{{.Context}} &mdash; {{.State}}
+									{{if .Description}}<span class="text grey">{{.Description}}</span>{{end}}
+									{{if .TargetURL}}<a href="{{.TargetURL}}" target="_blank" rel="noopener noreferrer">{{$.i18n.Tr "repo.builds.view_on_ci"}}</a>{{end}}
+								</div>
+							{{end}}
+						</div>
+					</div>
+				</div>
+			{{end}}
+
 			{{if .Issue.IsPull}}
 				<div class="comment merge box">
 					<a class="avatar text
@@ -154,6 +178,7 @@
 					{{else if .Issue.IsClosed}}grey
 					{{else if .IsPullReuqestBroken}}red
 					{{else if .Issue.PullRequest.IsChecking}}yellow
+					{{else if .RequiredStatusChecksUnmet}}red
 					{{else if .Issue.PullRequest.CanAutoMerge}}green
 					{{else}}red{{end}}"><span class="mega-octicon octicon-git-merge"></span></a>
 					<div class="content">
@@ -183,6 +208,11 @@
 								<div class="item text yellow">
 									<span class="octicon octicon-sync"></span>
 									{{$.i18n.Tr "repo.pulls.is_checking"}}
+								</div>
+							{{else if .RequiredStatusChecksUnmet}}
+								<div class="item text red">
+									<span class="octicon octicon-x"></span>
+									{{$.i18n.Tr "repo.pulls.required_checks_missing" (Join .RequiredStatusChecksUnmet ", ")}}
 								</div>
 							{{else if .Issue.PullRequest.CanAutoMerge}}
 								<div class="item text green">

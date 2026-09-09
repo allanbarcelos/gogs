@@ -174,6 +174,11 @@ var (
 			Schedule   string
 			OlderThan  time.Duration
 		} `ini:"cron.repo_archive_cleanup"`
+		CommitStatusCleanup struct {
+			Enabled    bool
+			RunAtStart bool
+			Schedule   string
+		} `ini:"cron.commit_status_cleanup"`
 	}
 
 	// Git settings
@@ -363,6 +368,14 @@ type RepositoryOpts struct {
 		FileMaxSize  int64
 		MaxFiles     int
 	} `ini:"repository.upload"`
+
+	// Commit status (external CI) settings
+	CommitStatus struct {
+		Enabled               bool
+		MaxContextsPerCommit  int
+		MaxAttemptsPerContext int
+		RetentionDays         int
+	} `ini:"repository.commit_status"`
 }
 
 // Repository settings

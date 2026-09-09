@@ -217,6 +217,8 @@ type Repository struct {
 	EnablePulls           bool              `xorm:"NOT NULL DEFAULT true" gorm:"not null;default:TRUE"`
 	PullsIgnoreWhitespace bool              `xorm:"NOT NULL DEFAULT false" gorm:"not null;default:FALSE"`
 	PullsAllowRebase      bool              `xorm:"NOT NULL DEFAULT false" gorm:"not null;default:FALSE"`
+	EnableCommitStatus    bool              `xorm:"NOT NULL DEFAULT false" gorm:"not null;default:FALSE"`
+	CommitStatusSecret    string            `xorm:"TEXT" gorm:"type:TEXT"`
 
 	IsFork   bool `xorm:"NOT NULL DEFAULT false" gorm:"not null;default:FALSE"`
 	ForkID   int64
@@ -231,6 +233,13 @@ type Repository struct {
 func (r *Repository) BeforeInsert() {
 	r.CreatedUnix = time.Now().Unix()
 	r.UpdatedUnix = r.CreatedUnix
+}
+
+// ShowsCommitStatus reports whether the Builds tab and commit status API are
+// active for this repository: the instance switch and the per-repo flag must
+// both be on.
+func (r *Repository) ShowsCommitStatus() bool {
+	return conf.Repository.CommitStatus.Enabled && r.EnableCommitStatus
 }
 
 func (r *Repository) AfterSet(colName string, _ xorm.Cell) {
@@ -1141,6 +1150,9 @@ func createRepository(e *xorm.Session, doer, owner *User, repo *Repository) (err
 	if err = isRepoNameAllowed(repo.Name); err != nil {
 		return err
 	}
+	if err = ensureCommitStatusSecret(repo); err != nil {
+		return err
+	}
 
 	has, err := isRepositoryExist(e, owner, repo.Name)
 	if err != nil {
@@ -1228,16 +1240,17 @@ func CreateRepository(doer, owner *User, opts CreateRepoOptionsLegacy) (_ *Repos
 	}
 
 	repo := &Repository{
-		OwnerID:      owner.ID,
-		Owner:        owner,
-		Name:         opts.Name,
-		LowerName:    strings.ToLower(opts.Name),
-		Description:  opts.Description,
-		IsPrivate:    opts.IsPrivate,
-		IsUnlisted:   opts.IsUnlisted,
-		EnableWiki:   true,
-		EnableIssues: true,
-		EnablePulls:  true,
+		OwnerID:            owner.ID,
+		Owner:              owner,
+		Name:               opts.Name,
+		LowerName:          strings.ToLower(opts.Name),
+		Description:        opts.Description,
+		IsPrivate:          opts.IsPrivate,
+		IsUnlisted:         opts.IsUnlisted,
+		EnableWiki:         true,
+		EnableIssues:       true,
+		EnablePulls:        true,
+		EnableCommitStatus: true,
 	}
 
 	sess := x.NewSession()
@@ -1745,6 +1758,12 @@ func DeleteRepository(ownerID, repoID int64) error {
 
 	if err = sess.Commit(); err != nil {
 		return errors.Newf("commit: %v", err)
+	}
+
+	if Handle != nil {
+		if err = Handle.CommitStatuses().DeleteByRepo(context.TODO(), repoID); err != nil {
+			log.Error("Failed to delete commit statuses for repository %d: %v", repoID, err)
+		}
 	}
 
 	// Remove repository files.
@@ -2556,16 +2575,17 @@ func ForkRepository(doer, owner *User, baseRepo *Repository, name, desc string) 
 	}
 
 	repo := &Repository{
-		OwnerID:       owner.ID,
-		Owner:         owner,
-		Name:          name,
-		LowerName:     strings.ToLower(name),
-		Description:   desc,
-		DefaultBranch: baseRepo.DefaultBranch,
-		IsPrivate:     baseRepo.IsPrivate,
-		IsUnlisted:    baseRepo.IsUnlisted,
-		IsFork:        true,
-		ForkID:        baseRepo.ID,
+		OwnerID:            owner.ID,
+		Owner:              owner,
+		Name:               name,
+		LowerName:          strings.ToLower(name),
+		Description:        desc,
+		DefaultBranch:      baseRepo.DefaultBranch,
+		IsPrivate:          baseRepo.IsPrivate,
+		IsUnlisted:         baseRepo.IsUnlisted,
+		IsFork:             true,
+		ForkID:             baseRepo.ID,
+		EnableCommitStatus: true,
 	}
 
 	sess := x.NewSession()

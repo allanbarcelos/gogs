@@ -39,6 +39,24 @@ func Settings(c *context.Context) {
 	c.Title("repo.settings")
 	c.PageIs("SettingsOptions")
 	c.RequireAutosize()
+
+	repo := c.Repo.Repository
+	if repo.ShowsCommitStatus() && repo.CommitStatusSecret == "" {
+		secret, err := database.GenerateCommitStatusSecret()
+		if err != nil {
+			c.Error(err, "generate commit status secret")
+			return
+		}
+		if err := repo.SetPlainCommitStatusSecret(secret); err != nil {
+			c.Error(err, "encrypt commit status secret")
+			return
+		}
+		if err := database.UpdateRepository(repo, false); err != nil {
+			c.Error(err, "save commit status secret")
+			return
+		}
+	}
+
 	c.Success(tmplRepoSettingsOptions)
 }
 
@@ -182,12 +200,29 @@ func SettingsPost(c *context.Context, f form.RepoSetting) {
 		repo.EnablePulls = f.EnablePulls
 		repo.PullsIgnoreWhitespace = f.PullsIgnoreWhitespace
 		repo.PullsAllowRebase = f.PullsAllowRebase
+		if conf.Repository.CommitStatus.Enabled {
+			repo.EnableCommitStatus = f.EnableCommitStatus
+		}
 
 		if !repo.EnableWiki || repo.EnableExternalWiki {
 			repo.AllowPublicWiki = false
 		}
 		if !repo.EnableIssues || repo.EnableExternalTracker {
 			repo.AllowPublicIssues = false
+		}
+
+		// Mint a CI secret the first time the builds feature is turned on so
+		// the Jenkins guide has something to show without an extra step.
+		if repo.EnableCommitStatus && repo.CommitStatusSecret == "" {
+			secret, err := database.GenerateCommitStatusSecret()
+			if err != nil {
+				c.Error(err, "generate commit status secret")
+				return
+			}
+			if err := repo.SetPlainCommitStatusSecret(secret); err != nil {
+				c.Error(err, "encrypt commit status secret")
+				return
+			}
 		}
 
 		if err := database.UpdateRepository(repo, false); err != nil {
@@ -197,6 +232,25 @@ func SettingsPost(c *context.Context, f form.RepoSetting) {
 		log.Trace("Repository advanced settings updated: %s/%s", c.Repo.Owner.Name, repo.Name)
 
 		c.Flash.Success(c.Tr("repo.settings.update_settings_success"))
+		c.Redirect(c.Repo.RepoLink + "/settings")
+
+	case "commit_status_secret":
+		secret, err := database.GenerateCommitStatusSecret()
+		if err != nil {
+			c.Error(err, "generate commit status secret")
+			return
+		}
+		if err := repo.SetPlainCommitStatusSecret(secret); err != nil {
+			c.Error(err, "encrypt commit status secret")
+			return
+		}
+		if err := database.UpdateRepository(repo, false); err != nil {
+			c.Error(err, "update repository")
+			return
+		}
+		log.Trace("Repository CI secret rotated: %s/%s", c.Repo.Owner.Name, repo.Name)
+
+		c.Flash.Success(c.Tr("repo.settings.commit_status_secret_rotated"))
 		c.Redirect(c.Repo.RepoLink + "/settings")
 
 	case "convert":
@@ -656,6 +710,7 @@ func SettingsProtectedBranchPost(c *context.Context, f form.ProtectBranch) {
 	protectBranch.Protected = f.Protected
 	protectBranch.RequirePullRequest = f.RequirePullRequest
 	protectBranch.EnableWhitelist = f.EnableWhitelist
+	protectBranch.RequiredStatusContexts = strings.Join(database.ParseStatusContexts(f.RequiredStatusContexts), "\n")
 	if c.Repo.Owner.IsOrganization() {
 		err = database.UpdateOrgProtectBranch(c.Repo.Repository, protectBranch, f.WhitelistUsers, f.WhitelistTeams)
 	} else {

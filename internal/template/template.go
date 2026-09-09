@@ -67,6 +67,9 @@ func FuncMap() []template.FuncMap {
 			"DisableGravatar": func() bool {
 				return conf.Picture.DisableGravatar
 			},
+			"CommitStatusInstanceEnabled": func() bool {
+				return conf.Repository.CommitStatus.Enabled
+			},
 			"ShowFooterTemplateLoadTime": func() bool {
 				return conf.Other.ShowFooterTemplateLoadTime
 			},

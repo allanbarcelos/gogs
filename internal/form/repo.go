@@ -121,6 +121,7 @@ type RepoSetting struct {
 	EnablePulls           bool
 	PullsIgnoreWhitespace bool
 	PullsAllowRebase      bool
+	EnableCommitStatus    bool
 }
 
 func (f *RepoSetting) Validate(ctx *macaron.Context, errs binding.Errors) binding.Errors {
@@ -145,11 +146,12 @@ func (f *RepoPages) Validate(ctx *macaron.Context, errs binding.Errors) binding.
 //         \/             \/     \/     \/     \/
 
 type ProtectBranch struct {
-	Protected          bool
-	RequirePullRequest bool
-	EnableWhitelist    bool
-	WhitelistUsers     string
-	WhitelistTeams     string
+	Protected              bool
+	RequirePullRequest     bool
+	EnableWhitelist        bool
+	WhitelistUsers         string
+	WhitelistTeams         string
+	RequiredStatusContexts string
 }
 
 func (f *ProtectBranch) Validate(ctx *macaron.Context, errs binding.Errors) binding.Errors {
@@ -173,6 +175,7 @@ type Webhook struct {
 	IssueComment bool
 	PullRequest  bool
 	Release      bool
+	Status       bool
 	Active       bool
 }
 

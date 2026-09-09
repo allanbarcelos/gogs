@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cockroachdb/errors"
@@ -213,6 +214,20 @@ func (pr *PullRequest) Merge(doer *User, baseGitRepo *git.Repository, mergeStyle
 	headGitRepo, err := git.Open(headRepoPath)
 	if err != nil {
 		return errors.Newf("open repository: %v", err)
+	}
+
+	if protect, err := GetProtectBranchOfRepoByName(pr.BaseRepo.ID, pr.BaseBranch); err == nil && protect.Protected {
+		required := ParseStatusContexts(protect.RequiredStatusContexts)
+		if len(required) > 0 {
+			sha, _ := headGitRepo.BranchCommitID(pr.HeadBranch)
+			unmet, checkErr := Handle.CommitStatuses().UnmetRequiredStatusChecks(ctx, pr.BaseRepo.ID, sha, required)
+			if checkErr != nil {
+				return errors.Wrap(checkErr, "required status checks")
+			}
+			if len(unmet) > 0 {
+				return errors.Newf("required status checks have not succeeded: %s", strings.Join(unmet, ", "))
+			}
+		}
 	}
 
 	// Create temporary directory to store temporary copy of the base repository,

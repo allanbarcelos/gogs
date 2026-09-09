@@ -246,6 +246,86 @@ func PrepareViewPullInfo(c *context.Context, issue *database.Issue) *gitx.PullRe
 	return prMeta
 }
 
+// pullHeadCommitSHA is the SHA CI reports against: the live head branch while
+// the PR is open, or the second parent of a merge commit after merge
+// (fast-forwards have one parent, so the merge SHA itself is the head).
+func pullHeadCommitSHA(c *context.Context, pull *database.PullRequest) string {
+	if !pull.HasMerged {
+		if pull.HeadRepo == nil {
+			return ""
+		}
+		headGitRepo, err := git.Open(pull.HeadRepo.RepoPath())
+		if err != nil {
+			return ""
+		}
+		sha, _ := headGitRepo.BranchCommitID(pull.HeadBranch)
+		return sha
+	}
+
+	sha := pull.MergedCommitID
+	if sha == "" || c.Repo.GitRepo == nil {
+		return sha
+	}
+	commit, err := c.Repo.GitRepo.CatFileCommit(sha)
+	if err != nil || commit.ParentsCount() < 2 {
+		return sha
+	}
+	parent, err := commit.ParentID(1)
+	if err != nil {
+		return sha
+	}
+	return parent.String()
+}
+
+// preparePullCommitStatus loads the latest commit status per context for the
+// head commit of a pull request, along with the combined state, and stashes
+// them for the conversation template.
+func preparePullCommitStatus(c *context.Context, issue *database.Issue) {
+	if !issue.IsPull {
+		return
+	}
+	pull := issue.PullRequest
+	repo := c.Repo.Repository
+	if repo.ShowsCommitStatus() {
+		sha := pullHeadCommitSHA(c, pull)
+		if sha != "" {
+			statuses, err := database.Handle.CommitStatuses().Latest(c.Req.Context(), repo.ID, sha)
+			if err != nil {
+				log.Error("Failed to load commit statuses for pull request head %q: %v", sha, err)
+			} else if len(statuses) > 0 {
+				states := make([]database.CommitStatusState, len(statuses))
+				for i, s := range statuses {
+					states[i] = s.State
+				}
+				c.Data["CommitStatusHeadSHA"] = sha
+				c.Data["CommitStatusState"] = string(database.CombineCommitStatusStates(states...))
+				c.Data["CommitStatuses"] = statuses
+			}
+		}
+	}
+	if unmet := requiredStatusChecksUnmet(c, pull); len(unmet) > 0 {
+		c.Data["RequiredStatusChecksUnmet"] = unmet
+	}
+}
+
+func requiredStatusChecksUnmet(c *context.Context, pull *database.PullRequest) []string {
+	protect, err := database.GetProtectBranchOfRepoByName(c.Repo.Repository.ID, pull.BaseBranch)
+	if err != nil || !protect.Protected {
+		return nil
+	}
+	required := database.ParseStatusContexts(protect.RequiredStatusContexts)
+	if len(required) == 0 {
+		return nil
+	}
+	sha := pullHeadCommitSHA(c, pull)
+	unmet, err := database.Handle.CommitStatuses().UnmetRequiredStatusChecks(c.Req.Context(), c.Repo.Repository.ID, sha, required)
+	if err != nil {
+		log.Error("Failed to evaluate required status checks for pull request: %v", err)
+		return required
+	}
+	return unmet
+}
+
 func ViewPullCommits(c *context.Context) {
 	c.Data["PageIsPullList"] = true
 	c.Data["PageIsPullCommits"] = true
@@ -421,6 +501,13 @@ func MergePullRequest(c *context.Context) {
 
 	pr.Issue = issue
 	pr.Issue.Repo = c.Repo.Repository
+	pr.BaseRepo = c.Repo.Repository
+	if unmet := requiredStatusChecksUnmet(c, pr); len(unmet) > 0 {
+		c.Flash.Error(c.Tr("repo.pulls.required_checks_missing", strings.Join(unmet, ", ")))
+		c.Redirect(c.Repo.RepoLink + "/pulls/" + strconv.FormatInt(pr.Index, 10))
+		return
+	}
+
 	if err = pr.Merge(c.User, c.Repo.GitRepo, database.MergeStyle(c.Query("merge_style")), c.Query("commit_description")); err != nil {
 		c.Error(err, "merge")
 		return

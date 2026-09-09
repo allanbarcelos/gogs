@@ -171,6 +171,7 @@ func toHookEvent(f form.Webhook) *database.HookEvent {
 			IssueComment: f.IssueComment,
 			PullRequest:  f.PullRequest,
 			Release:      f.Release,
+			Status:       f.Status,
 		},
 	}
 }
