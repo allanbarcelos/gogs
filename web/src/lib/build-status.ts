@@ -32,6 +32,6 @@ const UNKNOWN: BuildStateAppearance = {
   className: "text-(--color-muted-foreground)",
 };
 
-export function buildStateAppearance(state: CommitStatusState | "" | string): BuildStateAppearance {
+export function buildStateAppearance(state: string): BuildStateAppearance {
   return APPEARANCE[state as CommitStatusState] ?? UNKNOWN;
 }

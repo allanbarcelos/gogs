@@ -5,7 +5,7 @@ import type { CommitStatusState } from "@/lib/queries/repo";
 import { cn } from "@/lib/utils";
 
 interface BuildStatePillProps {
-  state: CommitStatusState | "" | string;
+  state: CommitStatusState | "";
   // "sm" is icon-only (with an accessible label); "md" shows the text too.
   size?: "sm" | "md";
   className?: string;

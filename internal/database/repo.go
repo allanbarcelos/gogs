@@ -1229,16 +1229,17 @@ func CreateRepository(doer, owner *User, opts CreateRepoOptionsLegacy) (_ *Repos
 	}
 
 	repo := &Repository{
-		OwnerID:      owner.ID,
-		Owner:        owner,
-		Name:         opts.Name,
-		LowerName:    strings.ToLower(opts.Name),
-		Description:  opts.Description,
-		IsPrivate:    opts.IsPrivate,
-		IsUnlisted:   opts.IsUnlisted,
-		EnableWiki:   true,
-		EnableIssues: true,
-		EnablePulls:  true,
+		OwnerID:            owner.ID,
+		Owner:              owner,
+		Name:               opts.Name,
+		LowerName:          strings.ToLower(opts.Name),
+		Description:        opts.Description,
+		IsPrivate:          opts.IsPrivate,
+		IsUnlisted:         opts.IsUnlisted,
+		EnableWiki:         true,
+		EnableIssues:       true,
+		EnablePulls:        true,
+		EnableCommitStatus: true,
 	}
 
 	sess := x.NewSession()

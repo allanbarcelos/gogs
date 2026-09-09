@@ -5,9 +5,9 @@ import { useTranslation } from "react-i18next";
 
 import { BuildStatePill } from "@/components/BuildStatePill";
 import { RepoHeader } from "@/components/RepoHeader";
+import { usePageTitle } from "@/lib/page-title";
 import { type BuildStatus, repoCommitStatusesQuery, repoHeaderQuery } from "@/lib/queries/repo";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/relative-time";
-import { usePageTitle } from "@/lib/page-title";
 import { subUrl } from "@/lib/url";
 
 const ROUTE_ID = "/$owner/$repo/builds/$sha";
