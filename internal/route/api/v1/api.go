@@ -10,6 +10,7 @@ import (
 	"gogs.io/gogs/internal/context"
 	"gogs.io/gogs/internal/database"
 	"gogs.io/gogs/internal/form"
+	"gogs.io/gogs/internal/route/api/v1/types"
 )
 
 // repoAssignment extracts information from URL parameters to retrieve the repository,
@@ -293,10 +294,14 @@ func RegisterRoutes(m *macaron.Macaron) {
 					m.Get("/*", getBranch)
 				})
 				m.Group("/commits", func() {
+					m.Get("/:sha/status", mustEnableCommitStatus, getCombinedCommitStatus)
+					m.Get("/:sha/statuses", mustEnableCommitStatus, listCommitStatuses)
 					m.Get("/:sha", getSingleCommit)
 					m.Get("", getAllCommits)
 					m.Get("/*", getReferenceSHA)
 				})
+
+				m.Post("/statuses/:sha", mustEnableCommitStatus, reqRepoWriter(), bind(types.CreateStatusOption{}), createCommitStatus)
 
 				m.Group("/keys", func() {
 					m.Combo("").
