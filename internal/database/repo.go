@@ -1700,6 +1700,7 @@ func DeleteRepository(ownerID, repoID int64) error {
 		&Webhook{RepoID: repoID},
 		&HookTask{RepoID: repoID},
 		&LFSObject{RepoID: repoID},
+		&RepoPage{RepoID: repoID},
 	); err != nil {
 		return errors.Newf("deleteBeans: %v", err)
 	}

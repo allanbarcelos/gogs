@@ -127,6 +127,16 @@ func (f *RepoSetting) Validate(ctx *macaron.Context, errs binding.Errors) bindin
 	return validate(errs, ctx.Data, f, ctx.Locale)
 }
 
+type RepoPages struct {
+	Enable bool
+	Branch string
+	Dir    string
+}
+
+func (f *RepoPages) Validate(ctx *macaron.Context, errs binding.Errors) binding.Errors {
+	return validate(errs, ctx.Data, f, ctx.Locale)
+}
+
 // __________                             .__
 // \______   \____________    ____   ____ |  |__
 //  |    |  _/\_  __ \__  \  /    \_/ ___\|  |  \

@@ -113,6 +113,10 @@ func Init(customConf string) error {
 	Server.Subpath = strings.TrimRight(Server.URL.Path, "/")
 	Server.SubpathDepth = strings.Count(Server.Subpath, "/")
 
+	if err = initPagesSettings(); err != nil {
+		return err
+	}
+
 	unixSocketMode, err := strconv.ParseUint(Server.UnixSocketPermission, 8, 32)
 	if err != nil {
 		return errors.Wrapf(err, "parse '[server] UNIX_SOCKET_PERMISSION' %q", Server.UnixSocketPermission)
@@ -428,5 +432,30 @@ func Init(customConf string) error {
 	}
 
 	HasRobotsTxt = osx.IsFile(filepath.Join(CustomDir(), "robots.txt"))
+	return nil
+}
+
+func initPagesSettings() error {
+	Server.PagesDomain = strings.ToLower(strings.TrimSpace(Server.PagesDomain))
+	Server.PagesProtocol = strings.ToLower(strings.TrimSpace(Server.PagesProtocol))
+
+	if Server.PagesProtocol != "" && Server.PagesProtocol != "http" && Server.PagesProtocol != "https" {
+		return errors.Newf("parse '[server] PAGES_PROTOCOL': must be \"http\" or \"https\", got %q", Server.PagesProtocol)
+	}
+
+	if Server.PagesDomain == "" {
+		return nil
+	}
+
+	appHost := ""
+	if Server.URL != nil {
+		appHost = strings.ToLower(Server.URL.Hostname())
+	}
+	if appHost != "" && appHost == Server.PagesDomain {
+		return errors.Newf("[server] PAGES_DOMAIN %q must not be the application host; use a dedicated domain (e.g., \"pages.example.com\")", Server.PagesDomain)
+	}
+	if appHost != "" && strings.HasSuffix(appHost, "."+Server.PagesDomain) {
+		return errors.Newf("[server] PAGES_DOMAIN %q would capture the application host %q; use a dedicated domain that is not a parent of EXTERNAL_URL", Server.PagesDomain, appHost)
+	}
 	return nil
 }

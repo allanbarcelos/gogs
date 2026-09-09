@@ -129,3 +129,21 @@ Primary keys: id
 Primary keys: id
 ```
 
+# Table "repo_page"
+
+```
+    Field    |    Column    |    PostgreSQL    |         MySQL         |        SQLite3        
+-------------+--------------+------------------+-----------------------+-----------------------
+ ID          | id           | BIGSERIAL        | BIGINT AUTO_INCREMENT | INTEGER AUTOINCREMENT 
+ RepoID      | repo_id      | BIGINT NOT NULL  | BIGINT NOT NULL       | INTEGER NOT NULL      
+ Branch      | branch       | TEXT NOT NULL    | LONGTEXT NOT NULL     | TEXT NOT NULL         
+ Dir         | dir          | TEXT NOT NULL    | LONGTEXT NOT NULL     | TEXT NOT NULL         
+ Enabled     | enabled      | BOOLEAN NOT NULL | BOOLEAN NOT NULL      | NUMERIC NOT NULL      
+ CreatedUnix | created_unix | BIGINT           | BIGINT                | INTEGER               
+ UpdatedUnix | updated_unix | BIGINT           | BIGINT                | INTEGER               
+
+Primary keys: id
+Indexes: 
+	"idx_repo_page_repo_id" UNIQUE (repo_id)
+```
+

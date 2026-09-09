@@ -12,6 +12,11 @@
 			{{.i18n.Tr "repo.settings.branches"}}
 		</a>
 		{{end}}
+		{{if EnablePages}}
+		<a class="{{if .PageIsSettingsPages}}active{{end}} item" href="{{.RepoLink}}/settings/pages">
+			{{.i18n.Tr "repo.settings.pages"}}
+		</a>
+		{{end}}
 		<a class="{{if .PageIsSettingsHooks}}active{{end}} item" href="{{.RepoLink}}/settings/hooks">
 			{{.i18n.Tr "repo.settings.hooks"}}
 		</a>

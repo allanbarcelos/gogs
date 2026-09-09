@@ -18,6 +18,7 @@ import (
 	"gogs.io/gogs/internal/email"
 	"gogs.io/gogs/internal/form"
 	"gogs.io/gogs/internal/osx"
+	"gogs.io/gogs/internal/pages"
 	"gogs.io/gogs/internal/tool"
 	"gogs.io/gogs/internal/userx"
 )
@@ -28,6 +29,7 @@ const (
 	tmplRepoSettingsCollaboration   = "repo/settings/collaboration"
 	tmplRepoSettingsBranches        = "repo/settings/branches"
 	tmplRepoSettingsProtectedBranch = "repo/settings/protected_branch"
+	tmplRepoSettingsPages           = "repo/settings/pages"
 	tmplRepoSettingsGithooks        = "repo/settings/githooks"
 	tmplRepoSettingsGithookEdit     = "repo/settings/githook_edit"
 	tmplRepoSettingsDeployKeys      = "repo/settings/deploy_keys"
@@ -510,6 +512,79 @@ func UpdateDefaultBranch(c *context.Context) {
 
 	c.Flash.Success(c.Tr("repo.settings.update_default_branch_success"))
 	c.Redirect(c.Repo.RepoLink + "/settings/branches")
+}
+
+func SettingsPages(c *context.Context) {
+	c.Data["Title"] = c.Tr("repo.settings.pages")
+	c.Data["PageIsSettingsPages"] = true
+	c.Data["PagesEnabled"] = conf.Server.PagesEnabled()
+
+	if !conf.Server.PagesEnabled() {
+		c.Success(tmplRepoSettingsPages)
+		return
+	}
+
+	c.Data["PagesConfigEnabled"] = false
+	c.Data["PagesBranch"] = c.Repo.Repository.DefaultBranch
+	c.Data["PagesDir"] = "/"
+
+	page, err := database.Handle.Pages().Get(c.Req.Context(), c.Repo.Repository.ID)
+	if err != nil && !database.IsErrRepoPageNotFound(err) {
+		c.Error(err, "get repository pages configuration")
+		return
+	}
+	if page != nil {
+		c.Data["PagesConfigEnabled"] = page.Enabled
+		c.Data["PagesBranch"] = page.Branch
+		c.Data["PagesDir"] = page.Dir
+	}
+
+	c.Data["PagesPublishedURL"] = pages.SiteURL(c.Repo.Owner.Name, c.Repo.Repository.Name)
+	c.Data["IsRepoPrivate"] = c.Repo.Repository.IsPrivate
+	c.Success(tmplRepoSettingsPages)
+}
+
+func SettingsPagesPost(c *context.Context, f form.RepoPages) {
+	c.Data["Title"] = c.Tr("repo.settings.pages")
+	c.Data["PageIsSettingsPages"] = true
+
+	if !conf.Server.PagesEnabled() {
+		c.NotFound()
+		return
+	}
+
+	if !f.Enable {
+		if err := database.Handle.Pages().Disable(c.Req.Context(), c.Repo.Repository.ID); err != nil {
+			c.Error(err, "disable repository pages")
+			return
+		}
+		c.Flash.Success(c.Tr("repo.settings.pages_update_success"))
+		c.Redirect(c.Repo.RepoLink + "/settings/pages")
+		return
+	}
+
+	if !c.Repo.GitRepo.HasBranch(f.Branch) {
+		c.Flash.Error(c.Tr("repo.settings.pages_branch_not_exist"))
+		c.Redirect(c.Repo.RepoLink + "/settings/pages")
+		return
+	}
+
+	dir := "/"
+	if f.Dir == "/docs" {
+		dir = "/docs"
+	}
+
+	if err := database.Handle.Pages().Save(c.Req.Context(), c.Repo.Repository.ID, database.SavePagesOptions{
+		Enabled: true,
+		Branch:  f.Branch,
+		Dir:     dir,
+	}); err != nil {
+		c.Error(err, "save repository pages configuration")
+		return
+	}
+
+	c.Flash.Success(c.Tr("repo.settings.pages_update_success"))
+	c.Redirect(c.Repo.RepoLink + "/settings/pages")
 }
 
 func SettingsProtectedBranch(c *context.Context) {

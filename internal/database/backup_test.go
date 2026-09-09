@@ -27,7 +27,7 @@ func TestDumpAndImport(t *testing.T) {
 	}
 	t.Parallel()
 
-	const wantTables = 8
+	const wantTables = 9
 	if len(Tables) != wantTables {
 		t.Fatalf("New table has added (want %d got %d), please add new tests for the table and update this check", wantTables, len(Tables))
 	}
@@ -192,6 +192,25 @@ func setupDBToDump(t *testing.T, db *gorm.DB) {
 			Type:        NoticeTypeRepository,
 			Description: "This is a notice",
 			CreatedUnix: 1588568886,
+		},
+
+		&RepoPage{
+			ID:          1,
+			RepoID:      1,
+			Branch:      "main",
+			Dir:         "/",
+			Enabled:     true,
+			CreatedUnix: 1588568886,
+			UpdatedUnix: 1588572486, // 1 hour later
+		},
+		&RepoPage{
+			ID:          2,
+			RepoID:      2,
+			Branch:      "gh-pages",
+			Dir:         "/docs",
+			Enabled:     false,
+			CreatedUnix: 1588568886,
+			UpdatedUnix: 1588568886,
 		},
 	}
 	for _, val := range vals {
