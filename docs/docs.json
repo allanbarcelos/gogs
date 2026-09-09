@@ -48,6 +48,7 @@
             "pages": [
               "advancing/authentication",
               "advancing/webhooks",
+              "advancing/ci-integration",
               "advancing/git-lfs",
               "advancing/custom-templates",
               "advancing/localization",

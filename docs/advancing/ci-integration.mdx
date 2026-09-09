@@ -1,0 +1,106 @@
+---
+title: "CI integration"
+description: "Show external build results in the repository Builds tab"
+icon: "circle-check"
+---
+
+Gogs does not run builds. It stores build results reported by an external CI
+system, such as Jenkins, and shows them in the repository **Builds** tab, next
+to each commit, and on the pull request page.
+
+The flow has two directions:
+
+1. **Trigger.** Gogs sends a webhook on push and pull request events. Your CI
+   system consumes it and runs the build. This already works with the standard
+   Gogs webhook.
+2. **Report back.** Your CI system calls the Gogs commit status API to record
+   the build state against the commit. This is the part you wire up below.
+
+## Enable the feature
+
+The Builds tab appears when `[repository.commit_status] ENABLED` is `true`
+(the default) and the repository has commit statuses turned on in its settings.
+
+```ini
+[repository.commit_status]
+ENABLED = true
+MAX_CONTEXTS_PER_COMMIT = 20
+MAX_ATTEMPTS_PER_CONTEXT = 20
+RETENTION_DAYS = 90
+```
+
+## Create a CI account
+
+1. Create a dedicated user, for example `jenkins-ci`.
+2. Add it as a **Write** collaborator on every repository that has CI.
+3. Sign in as that user and generate a token under **Settings > Applications >
+   Generate New Token**.
+
+Writing a status requires write access to the repository, the same level as
+pushing code, so the CI account gains no extra capability.
+
+## Report a status
+
+```
+POST /api/v1/repos/:owner/:repo/statuses/:sha
+Authorization: token <the CI account token>
+Content-Type: application/json
+
+{
+  "state": "success",
+  "target_url": "https://jenkins.example.com/job/acme/142/",
+  "description": "Passed in 3m20s",
+  "context": "jenkins/build"
+}
+```
+
+- `:sha` accepts a full or short commit SHA, a branch name, or a tag name. It
+  is resolved to the commit before storage.
+- `state` is one of `pending`, `running`, `success`, `failure`, `error`.
+  `running` is a Gogs extension; a client that only knows the GitHub set never
+  sends it and everything still works.
+- `context` identifies the check, for example `jenkins/build` or `jenkins/e2e`.
+  Reporting the same context again adds a new attempt; the most recent one is
+  shown.
+
+Read them back with:
+
+```
+GET /api/v1/repos/:owner/:repo/commits/:sha/statuses   # every attempt, newest first
+GET /api/v1/repos/:owner/:repo/commits/:sha/status     # combined state per context
+```
+
+## Jenkins pipeline example
+
+Store the token as the `GOGS_TOKEN` credential. With no dedicated plugin, a
+`curl` in a `post` block is enough.
+
+```groovy
+void gogsStatus(String state, String desc) {
+  sh """
+    curl -sS -X POST \
+      -H 'Authorization: token ${env.GOGS_TOKEN}' \
+      -H 'Content-Type: application/json' \
+      -d '{"state":"${state}","context":"jenkins/build","target_url":"${env.BUILD_URL}","description":"${desc}"}' \
+      ${env.GOGS_URL}/api/v1/repos/${env.REPO}/statuses/${env.GIT_COMMIT}
+  """
+}
+
+pipeline {
+  agent any
+  stages {
+    stage('notify') { steps { script { gogsStatus('pending', 'Build queued') } } }
+    stage('build')  { steps { script { gogsStatus('running', 'Building'); sh 'make build' } } }
+  }
+  post {
+    success  { script { gogsStatus('success', "Passed in ${currentBuild.durationString}") } }
+    failure  { script { gogsStatus('failure', 'Build failed') } }
+    unstable { script { gogsStatus('error',   'Tests unstable') } }
+  }
+}
+```
+
+## Chain notifications
+
+Add a webhook with the **Commit status** event to forward every status change
+to Slack, Discord, Dingtalk, or a custom endpoint.
