@@ -121,6 +121,7 @@ type RepoSetting struct {
 	EnablePulls           bool
 	PullsIgnoreWhitespace bool
 	PullsAllowRebase      bool
+	EnableCommitStatus    bool
 }
 
 func (f *RepoSetting) Validate(ctx *macaron.Context, errs binding.Errors) binding.Errors {

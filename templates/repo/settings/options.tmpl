@@ -234,6 +234,15 @@
 							</div>
 						{{end}}
 
+						<!-- Builds -->
+						<div class="inline field">
+							<label>{{.i18n.Tr "repo.builds"}}</label>
+							<div class="ui checkbox">
+								<input name="enable_commit_status" type="checkbox" {{if .Repository.EnableCommitStatus}}checked{{end}}>
+								<label>{{.i18n.Tr "repo.settings.enable_commit_status_desc"}}</label>
+							</div>
+						</div>
+
 						<div class="field">
 							<button class="ui green button">{{$.i18n.Tr "repo.settings.update_settings"}}</button>
 						</div>

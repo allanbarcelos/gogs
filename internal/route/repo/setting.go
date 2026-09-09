@@ -180,6 +180,7 @@ func SettingsPost(c *context.Context, f form.RepoSetting) {
 		repo.EnablePulls = f.EnablePulls
 		repo.PullsIgnoreWhitespace = f.PullsIgnoreWhitespace
 		repo.PullsAllowRebase = f.PullsAllowRebase
+		repo.EnableCommitStatus = f.EnableCommitStatus
 
 		if !repo.EnableWiki || repo.EnableExternalWiki {
 			repo.AllowPublicWiki = false
