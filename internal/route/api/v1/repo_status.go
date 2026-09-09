@@ -78,9 +78,21 @@ func commitStatusAssignment() macaron.Handler {
 		}
 		c.Data[commitStatusRawBodyKey] = body
 
+		// For a repository the caller has no valid credentials for, mirror
+		// repoAssignment() and respond 404 so a private repository stays
+		// indistinguishable from one that does not exist. Public repositories,
+		// whose existence is not a secret, get the informative status.
+		deny := func(status int, msg string) {
+			if repo.IsPrivate {
+				c.NotFound()
+				return
+			}
+			c.ErrorStatus(status, errors.New(msg))
+		}
+
 		if signature := c.Req.Header.Get("X-Gogs-Signature"); signature != "" {
 			if !database.VerifyCommitStatusSignature(repo.CommitStatusSecret, body, signature) {
-				c.ErrorStatus(http.StatusUnauthorized, errors.New("Invalid signature."))
+				deny(http.StatusUnauthorized, "Invalid signature.")
 				return
 			}
 			c.Data[commitStatusViaSecretKey] = true
@@ -88,12 +100,16 @@ func commitStatusAssignment() macaron.Handler {
 		}
 
 		if !c.IsTokenAuth {
-			c.ErrorStatus(http.StatusUnauthorized, errors.New("Provide either X-Gogs-Signature or an access token."))
+			deny(http.StatusUnauthorized, "Provide either X-Gogs-Signature or an access token.")
 			return
 		}
 		c.Repo.AccessMode = database.Handle.Permissions().AccessMode(c.Req.Context(), c.UserID(), repo.ID,
 			database.AccessModeOptions{OwnerID: repo.OwnerID, Private: repo.IsPrivate},
 		)
+		if !c.Repo.HasAccess() {
+			c.NotFound()
+			return
+		}
 		if !c.Repo.IsWriter() {
 			c.Status(http.StatusForbidden)
 			return
