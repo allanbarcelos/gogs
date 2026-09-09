@@ -64,9 +64,6 @@ func FuncMap() []template.FuncMap {
 			"EnablePages": func() bool {
 				return conf.Server.PagesEnabled()
 			},
-			"PagesDomain": func() string {
-				return conf.Server.PagesDomain
-			},
 			"DisableGravatar": func() bool {
 				return conf.Picture.DisableGravatar
 			},

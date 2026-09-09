@@ -18,6 +18,7 @@ import (
 	"gogs.io/gogs/internal/email"
 	"gogs.io/gogs/internal/form"
 	"gogs.io/gogs/internal/osx"
+	"gogs.io/gogs/internal/pages"
 	"gogs.io/gogs/internal/tool"
 	"gogs.io/gogs/internal/userx"
 )
@@ -513,11 +514,6 @@ func UpdateDefaultBranch(c *context.Context) {
 	c.Redirect(c.Repo.RepoLink + "/settings/branches")
 }
 
-// repoPagesURL composes the public URL of a repository's published site.
-func repoPagesURL(owner, repo string) string {
-	return fmt.Sprintf("%s://%s.%s/%s/", conf.Server.PagesURLScheme(), strings.ToLower(owner), conf.Server.PagesDomain, repo)
-}
-
 func SettingsPages(c *context.Context) {
 	c.Data["Title"] = c.Tr("repo.settings.pages")
 	c.Data["PageIsSettingsPages"] = true
@@ -543,7 +539,7 @@ func SettingsPages(c *context.Context) {
 		c.Data["PagesDir"] = page.Dir
 	}
 
-	c.Data["PagesPublishedURL"] = repoPagesURL(c.Repo.Owner.Name, c.Repo.Repository.Name)
+	c.Data["PagesPublishedURL"] = pages.SiteURL(c.Repo.Owner.Name, c.Repo.Repository.Name)
 	c.Data["IsRepoPrivate"] = c.Repo.Repository.IsPrivate
 	c.Success(tmplRepoSettingsPages)
 }

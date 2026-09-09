@@ -281,10 +281,11 @@ type ServerOpts struct {
 	LandingURL string `ini:"LANDING_URL"`
 
 	// Gogs Pages: the domain that serves repositories' published static sites.
-	// When empty, Gogs Pages is disabled entirely.
+	// When empty, Gogs Pages is disabled entirely. Must not be the application
+	// host or a parent of it.
 	PagesDomain string `ini:"PAGES_DOMAIN"`
-	// The scheme used when composing a published site URL. Falls back to the
-	// scheme of EXTERNAL_URL when empty.
+	// The scheme used when composing a published site URL. Must be "http" or
+	// "https" when set. Falls back to the scheme of EXTERNAL_URL when empty.
 	PagesProtocol string `ini:"PAGES_PROTOCOL"`
 
 	// Derived from other static values
@@ -304,7 +305,7 @@ func (o *ServerOpts) PagesEnabled() bool {
 
 // PagesURLScheme returns the scheme to use when composing a published site URL.
 func (o *ServerOpts) PagesURLScheme() string {
-	if o.PagesProtocol != "" {
+	if o.PagesProtocol == "http" || o.PagesProtocol == "https" {
 		return o.PagesProtocol
 	}
 	if o.URL != nil {
