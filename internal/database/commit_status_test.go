@@ -2,6 +2,9 @@ package database
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,6 +21,44 @@ func TestCommitStatusState(t *testing.T) {
 	assert.True(t, CommitStatusError.IsValid())
 	assert.False(t, CommitStatusState("").IsValid())
 	assert.False(t, CommitStatusState("bogus").IsValid())
+}
+
+func TestVerifyCommitStatusSignature(t *testing.T) {
+	t.Parallel()
+
+	secret := "s3cr3t"
+	body := []byte(`{"state":"success"}`)
+
+	assert.False(t, VerifyCommitStatusSignature("", body, "sha256=deadbeef"))
+	assert.False(t, VerifyCommitStatusSignature(secret, body, ""))
+	assert.False(t, VerifyCommitStatusSignature(secret, body, "sha256=deadbeef"))
+
+	// A signature produced with the real helper must round-trip, with and
+	// without the "sha256=" prefix.
+	sig := hmacHex(t, secret, body)
+	assert.True(t, VerifyCommitStatusSignature(secret, body, sig))
+	assert.True(t, VerifyCommitStatusSignature(secret, body, "sha256="+sig))
+	assert.False(t, VerifyCommitStatusSignature(secret, []byte("tampered"), sig))
+}
+
+func hmacHex(t *testing.T, secret string, body []byte) string {
+	t.Helper()
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, err := mac.Write(body)
+	require.NoError(t, err)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func TestGenerateCommitStatusSecret(t *testing.T) {
+	t.Parallel()
+
+	a, err := GenerateCommitStatusSecret()
+	require.NoError(t, err)
+	b, err := GenerateCommitStatusSecret()
+	require.NoError(t, err)
+
+	assert.Len(t, a, 40)
+	assert.NotEqual(t, a, b)
 }
 
 func TestCombineCommitStatusStates(t *testing.T) {
@@ -60,6 +101,7 @@ func TestCommitStatuses(t *testing.T) {
 		test func(t *testing.T, ctx context.Context, s *CommitStatusesStore)
 	}{
 		{"Create", commitStatusesCreate},
+		{"CreateWithCreatorName", commitStatusesCreateWithCreatorName},
 		{"CreateDefaultContext", commitStatusesCreateDefaultContext},
 		{"CreateMaxContexts", commitStatusesCreateMaxContexts},
 		{"List", commitStatusesList},
@@ -102,6 +144,24 @@ func commitStatusesCreate(t *testing.T, ctx context.Context, s *CommitStatusesSt
 	assert.Equal(t, "jenkins/build", got.Context)
 	assert.Equal(t, s.db.NowFunc().Unix(), got.CreatedUnix)
 	assert.Equal(t, got.CreatedUnix, got.UpdatedUnix)
+}
+
+func commitStatusesCreateWithCreatorName(t *testing.T, ctx context.Context, s *CommitStatusesStore) {
+	got, err := s.Create(ctx, CreateCommitStatusOptions{
+		RepoID:      1,
+		CreatorName: "ci",
+		CommitSHA:   "a1b2c3",
+		State:       CommitStatusSuccess,
+		Context:     "jenkins/build",
+	})
+	require.NoError(t, err)
+	assert.Zero(t, got.CreatorID)
+	assert.Equal(t, "ci", got.CreatorName)
+
+	round, err := s.List(ctx, 1, "a1b2c3")
+	require.NoError(t, err)
+	require.Len(t, round, 1)
+	assert.Equal(t, "ci", round[0].CreatorName)
 }
 
 func commitStatusesCreateDefaultContext(t *testing.T, ctx context.Context, s *CommitStatusesStore) {

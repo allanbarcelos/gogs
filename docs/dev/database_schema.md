@@ -68,6 +68,7 @@ Indexes:
  TargetURL   | target_url   | TEXT                  | LONGTEXT              | TEXT                  
  Description | description  | TEXT                  | LONGTEXT              | TEXT                  
  CreatorID   | creator_id   | BIGINT NOT NULL       | BIGINT NOT NULL       | INTEGER NOT NULL      
+ CreatorName | creator_name | TEXT                  | LONGTEXT              | TEXT                  
  CreatedUnix | created_unix | BIGINT                | BIGINT                | INTEGER               
  UpdatedUnix | updated_unix | BIGINT                | BIGINT                | INTEGER               
 

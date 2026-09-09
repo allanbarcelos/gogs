@@ -54,6 +54,9 @@ func newCreatorNameResolver(ctx context.Context) *creatorNameResolver {
 }
 
 func (r *creatorNameResolver) name(id int64) string {
+	if id == 0 {
+		return ""
+	}
 	if name, ok := r.cache[id]; ok {
 		return name
 	}
@@ -63,6 +66,15 @@ func (r *creatorNameResolver) name(id int64) string {
 	}
 	r.cache[id] = name
 	return name
+}
+
+// creatorOf returns the display name for a status: the CI label when reported
+// with the repository secret, otherwise the resolved user name.
+func (r *creatorNameResolver) creatorOf(s *database.CommitStatus) string {
+	if s.CreatorName != "" {
+		return s.CreatorName
+	}
+	return r.name(s.CreatorID)
 }
 
 func toBuildStatus(s *database.CommitStatus, creator string) *buildStatus {
@@ -127,9 +139,8 @@ func getRepoBuilds(c flamego.Context, repoCtx *repoContext) (int, *repoBuilds, e
 	perGroupRows := make(map[string][]*database.CommitStatus)
 
 	for _, row := range rows {
-		g, ok := index[row.CommitSHA]
-		if !ok {
-			g = &buildGroup{SHA: row.CommitSHA}
+		if _, ok := index[row.CommitSHA]; !ok {
+			g := &buildGroup{SHA: row.CommitSHA}
 			index[row.CommitSHA] = g
 			groups = append(groups, g)
 		}
@@ -140,7 +151,7 @@ func getRepoBuilds(c flamego.Context, repoCtx *repoContext) (int, *repoBuilds, e
 		latest := latestPerContext(perGroupRows[g.SHA])
 		g.State = combinedState(latest)
 		for _, row := range latest {
-			g.Statuses = append(g.Statuses, toBuildStatus(row, resolver.name(row.CreatorID)))
+			g.Statuses = append(g.Statuses, toBuildStatus(row, resolver.creatorOf(row)))
 		}
 	}
 
@@ -185,10 +196,10 @@ func getRepoCommitStatuses(c flamego.Context, repoCtx *repoContext) (int, *repoC
 		Attempts: make([]*buildStatus, 0, len(rows)),
 	}
 	for _, row := range latest {
-		resp.Latest = append(resp.Latest, toBuildStatus(row, resolver.name(row.CreatorID)))
+		resp.Latest = append(resp.Latest, toBuildStatus(row, resolver.creatorOf(row)))
 	}
 	for _, row := range rows {
-		resp.Attempts = append(resp.Attempts, toBuildStatus(row, resolver.name(row.CreatorID)))
+		resp.Attempts = append(resp.Attempts, toBuildStatus(row, resolver.creatorOf(row)))
 	}
 
 	return http.StatusOK, resp, nil

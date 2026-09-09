@@ -10,7 +10,6 @@ import (
 	"gogs.io/gogs/internal/context"
 	"gogs.io/gogs/internal/database"
 	"gogs.io/gogs/internal/form"
-	"gogs.io/gogs/internal/route/api/v1/types"
 )
 
 // repoAssignment extracts information from URL parameters to retrieve the repository,
@@ -247,6 +246,11 @@ func RegisterRoutes(m *macaron.Macaron) {
 
 			m.Get("/:username/:reponame", repoAssignment(), getRepo)
 			m.Get("/:username/:reponame/releases", repoAssignment(), releases)
+
+			// Authenticated by the repository CI secret (X-Gogs-Signature) or,
+			// alternatively, a write-scoped access token. Kept out of the
+			// token-only group above so a CI system can report without a user.
+			m.Post("/:username/:reponame/statuses/:sha", commitStatusAssignment(), mustEnableCommitStatus, createCommitStatus)
 		})
 
 		m.Group("/repos", func() {
@@ -300,8 +304,6 @@ func RegisterRoutes(m *macaron.Macaron) {
 					m.Get("", getAllCommits)
 					m.Get("/*", getReferenceSHA)
 				})
-
-				m.Post("/statuses/:sha", mustEnableCommitStatus, reqRepoWriter(), bind(types.CreateStatusOption{}), createCommitStatus)
 
 				m.Group("/keys", func() {
 					m.Combo("").

@@ -4,12 +4,15 @@ import "time"
 
 // CommitStatus is a single CI check outcome reported for a commit.
 type CommitStatus struct {
-	ID          int64     `json:"id"`
-	State       string    `json:"state"`
-	TargetURL   string    `json:"target_url"`
-	Description string    `json:"description"`
-	Context     string    `json:"context"`
-	Creator     *User     `json:"creator"`
+	ID          int64  `json:"id"`
+	State       string `json:"state"`
+	TargetURL   string `json:"target_url"`
+	Description string `json:"description"`
+	Context     string `json:"context"`
+	Creator     *User  `json:"creator"`
+	// CreatorName is set instead of Creator when the status was reported with
+	// the repository CI secret rather than a user token.
+	CreatorName string    `json:"creator_name,omitempty"`
 	Created     time.Time `json:"created_at"`
 	Updated     time.Time `json:"updated_at"`
 }

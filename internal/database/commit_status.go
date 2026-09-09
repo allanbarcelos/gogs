@@ -2,7 +2,11 @@ package database
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cockroachdb/errors"
@@ -11,7 +15,29 @@ import (
 
 	"gogs.io/gogs/internal/conf"
 	"gogs.io/gogs/internal/errx"
+	"gogs.io/gogs/internal/strx"
 )
+
+// GenerateCommitStatusSecret returns a fresh random secret for a repository to
+// authenticate commit status reports from an external CI system.
+func GenerateCommitStatusSecret() (string, error) {
+	return strx.RandomChars(40)
+}
+
+// VerifyCommitStatusSignature reports whether "signature" is a valid
+// HMAC-SHA256 of "body" keyed by "secret". The signature may carry a
+// "sha256=" prefix, matching the header the outgoing webhooks use.
+func VerifyCommitStatusSignature(secret string, body []byte, signature string) bool {
+	if secret == "" || signature == "" {
+		return false
+	}
+	signature = strings.TrimPrefix(signature, "sha256=")
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write(body)
+	expected := hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(expected), []byte(signature))
+}
 
 // CommitStatusState is the state of a CI check reported for a commit.
 type CommitStatusState string
@@ -77,7 +103,12 @@ type CommitStatus struct {
 	Context     string            `gorm:"index:commit_status_repo_commit_context;type:VARCHAR(191);not null"`
 	TargetURL   string
 	Description string
-	CreatorID   int64 `gorm:"not null"`
+	// CreatorID is the user who reported the status via a personal access
+	// token, or 0 when it was reported with the repository CI secret.
+	CreatorID int64 `gorm:"not null"`
+	// CreatorName is a display label for a status reported with the CI secret
+	// (e.g. "ci"). Empty when CreatorID identifies a real user.
+	CreatorName string
 	CreatedUnix int64
 	UpdatedUnix int64
 
@@ -131,6 +162,7 @@ func (err ErrTooManyCommitStatusContexts) Error() string {
 type CreateCommitStatusOptions struct {
 	RepoID      int64
 	CreatorID   int64
+	CreatorName string
 	CommitSHA   string
 	State       CommitStatusState
 	Context     string
@@ -153,6 +185,7 @@ func (s *CommitStatusesStore) Create(ctx context.Context, opts CreateCommitStatu
 	status := &CommitStatus{
 		RepoID:      opts.RepoID,
 		CreatorID:   opts.CreatorID,
+		CreatorName: opts.CreatorName,
 		CommitSHA:   opts.CommitSHA,
 		State:       opts.State,
 		Context:     statusContext,
@@ -194,6 +227,10 @@ func (s *CommitStatusesStore) Create(ctx context.Context, opts CreateCommitStatu
 	if err != nil {
 		return nil, err
 	}
+	// GORM does not run AfterFind on the returned row, so populate the display
+	// timestamps the way a query would.
+	status.Created = time.Unix(status.CreatedUnix, 0).Local()
+	status.Updated = time.Unix(status.UpdatedUnix, 0).Local()
 	return status, nil
 }
 

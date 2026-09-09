@@ -218,6 +218,7 @@ type Repository struct {
 	PullsIgnoreWhitespace bool              `xorm:"NOT NULL DEFAULT false" gorm:"not null;default:FALSE"`
 	PullsAllowRebase      bool              `xorm:"NOT NULL DEFAULT false" gorm:"not null;default:FALSE"`
 	EnableCommitStatus    bool              `xorm:"NOT NULL DEFAULT true" gorm:"not null;default:TRUE"`
+	CommitStatusSecret    string            `xorm:"VARCHAR(40)" gorm:"type:VARCHAR(40)"`
 
 	IsFork   bool `xorm:"NOT NULL DEFAULT false" gorm:"not null;default:FALSE"`
 	ForkID   int64

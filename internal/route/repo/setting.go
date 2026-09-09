@@ -189,6 +189,17 @@ func SettingsPost(c *context.Context, f form.RepoSetting) {
 			repo.AllowPublicIssues = false
 		}
 
+		// Mint a CI secret the first time the builds feature is turned on so
+		// the Jenkins guide has something to show without an extra step.
+		if repo.EnableCommitStatus && repo.CommitStatusSecret == "" {
+			secret, err := database.GenerateCommitStatusSecret()
+			if err != nil {
+				c.Error(err, "generate commit status secret")
+				return
+			}
+			repo.CommitStatusSecret = secret
+		}
+
 		if err := database.UpdateRepository(repo, false); err != nil {
 			c.Error(err, "update repository")
 			return
@@ -196,6 +207,22 @@ func SettingsPost(c *context.Context, f form.RepoSetting) {
 		log.Trace("Repository advanced settings updated: %s/%s", c.Repo.Owner.Name, repo.Name)
 
 		c.Flash.Success(c.Tr("repo.settings.update_settings_success"))
+		c.Redirect(c.Repo.RepoLink + "/settings")
+
+	case "commit_status_secret":
+		secret, err := database.GenerateCommitStatusSecret()
+		if err != nil {
+			c.Error(err, "generate commit status secret")
+			return
+		}
+		repo.CommitStatusSecret = secret
+		if err := database.UpdateRepository(repo, false); err != nil {
+			c.Error(err, "update repository")
+			return
+		}
+		log.Trace("Repository CI secret rotated: %s/%s", c.Repo.Owner.Name, repo.Name)
+
+		c.Flash.Success(c.Tr("repo.settings.commit_status_secret_rotated"))
 		c.Redirect(c.Repo.RepoLink + "/settings")
 
 	case "convert":

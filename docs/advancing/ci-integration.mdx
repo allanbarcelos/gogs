@@ -29,21 +29,21 @@ MAX_ATTEMPTS_PER_CONTEXT = 20
 RETENTION_DAYS = 90
 ```
 
-## Create a CI account
+## Get the CI secret
 
-1. Create a dedicated user, for example `jenkins-ci`.
-2. Add it as a **Write** collaborator on every repository that has CI.
-3. Sign in as that user and generate a token under **Settings > Applications >
-   Generate New Token**.
+Each repository has a per-repository **CI secret**. It is minted the first time
+you turn on the Builds toggle. Open **Settings**, scroll to **CI secret**, and
+copy it. Use **Regenerate** to rotate it; the old value stops working
+immediately.
 
-Writing a status requires write access to the repository, the same level as
-pushing code, so the CI account gains no extra capability.
+No user account and no personal access token are involved. The secret only
+authorizes reporting statuses to that one repository.
 
 ## Report a status
 
 ```
 POST /api/v1/repos/:owner/:repo/statuses/:sha
-Authorization: token <the CI account token>
+X-Gogs-Signature: sha256=<HMAC-SHA256 of the raw body, keyed by the CI secret>
 Content-Type: application/json
 
 {
@@ -54,6 +54,11 @@ Content-Type: application/json
 }
 ```
 
+- Authentication is the `X-Gogs-Signature` header: the hex HMAC-SHA256 of the
+  exact request body, keyed by the CI secret, optionally prefixed with
+  `sha256=`. This is the same signature scheme Gogs uses for outgoing webhooks.
+- A write-scoped access token in `Authorization: token <PAT>` is also accepted,
+  for callers that prefer a user identity.
 - `:sha` accepts a full or short commit SHA, a branch name, or a tag name. It
   is resolved to the commit before storage.
 - `state` is one of `pending`, `running`, `success`, `failure`, `error`.
@@ -61,7 +66,7 @@ Content-Type: application/json
   sends it and everything still works.
 - `context` identifies the check, for example `jenkins/build` or `jenkins/e2e`.
   Reporting the same context again adds a new attempt; the most recent one is
-  shown.
+  shown. Statuses reported with the secret are attributed to `ci`.
 
 Read them back with:
 
@@ -72,22 +77,36 @@ GET /api/v1/repos/:owner/:repo/commits/:sha/status     # combined state per cont
 
 ## Jenkins pipeline example
 
-Store the token as the `GOGS_TOKEN` credential. With no dedicated plugin, a
-`curl` in a `post` block is enough.
+Store the repository CI secret as the `GOGS_CI_SECRET` credential. No plugin is
+needed; a `curl` in a `post` block is enough.
 
 ```groovy
 void gogsStatus(String state, String desc) {
+  def body = groovy.json.JsonOutput.toJson([
+    state: state, context: 'jenkins/build',
+    target_url: env.BUILD_URL, description: desc,
+  ])
+  writeFile file: '.gogs-status.json', text: body
+  def sig = sh(
+    script: "openssl dgst -sha256 -hmac \"\$GOGS_CI_SECRET\" -r .gogs-status.json | cut -d' ' -f1",
+    returnStdout: true,
+  ).trim()
   sh """
-    curl -sS -X POST \
-      -H 'Authorization: token ${env.GOGS_TOKEN}' \
+    curl -fsS -X POST \
+      -H 'X-Gogs-Signature: sha256=${sig}' \
       -H 'Content-Type: application/json' \
-      -d '{"state":"${state}","context":"jenkins/build","target_url":"${env.BUILD_URL}","description":"${desc}"}' \
+      --data-binary @.gogs-status.json \
       ${env.GOGS_URL}/api/v1/repos/${env.REPO}/statuses/${env.GIT_COMMIT}
   """
 }
 
 pipeline {
   agent any
+  environment {
+    GOGS_CI_SECRET = credentials('gogs-ci-secret')
+    GOGS_URL       = 'https://gogs.example.com'
+    REPO           = 'acme/website'
+  }
   stages {
     stage('notify') { steps { script { gogsStatus('pending', 'Build queued') } } }
     stage('build')  { steps { script { gogsStatus('running', 'Building'); sh 'make build' } } }
@@ -99,6 +118,10 @@ pipeline {
   }
 }
 ```
+
+Sign the exact bytes you send: build the JSON once, sign that file, and post it
+with `--data-binary @file` so the body the server verifies is byte-for-byte what
+you signed.
 
 ## Chain notifications
 

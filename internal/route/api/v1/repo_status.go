@@ -1,10 +1,13 @@
 package v1
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/cockroachdb/errors"
 	"github.com/gogs/git-module"
+	"gopkg.in/macaron.v1"
 	log "unknwon.dev/clog/v2"
 
 	"gogs.io/gogs/internal/conf"
@@ -13,6 +16,73 @@ import (
 	"gogs.io/gogs/internal/gitx"
 	"gogs.io/gogs/internal/route/api/v1/types"
 )
+
+const (
+	commitStatusRawBodyKey   = "commitStatusRawBody"
+	commitStatusViaSecretKey = "commitStatusViaSecret"
+)
+
+// commitStatusAssignment loads the repository for a commit status report and
+// authenticates the request in one of two ways:
+//
+//   - X-Gogs-Signature: an HMAC-SHA256 of the raw body keyed by the
+//     repository's CI secret. No user, no token.
+//   - Authorization: token <PAT>, requiring write access, for callers that
+//     prefer a user identity.
+//
+// The raw body is buffered so both the signature check and the handler can
+// read it.
+func commitStatusAssignment() macaron.Handler {
+	return func(c *context.APIContext) {
+		username := c.Params(":username")
+		reponame := strings.TrimSuffix(c.Params(":reponame"), ".git")
+
+		owner, err := database.Handle.Users().GetByUsername(c.Req.Context(), username)
+		if err != nil {
+			c.NotFoundOrError(err, "get user by name")
+			return
+		}
+		repo, err := database.Handle.Repositories().GetByName(c.Req.Context(), owner.ID, reponame)
+		if err != nil {
+			c.NotFoundOrError(err, "get repository by name")
+			return
+		}
+		if err = repo.GetOwner(); err != nil {
+			c.Error(err, "get owner")
+			return
+		}
+		c.Repo.Owner = owner
+		c.Repo.Repository = repo
+
+		body, err := c.Req.Body().Bytes()
+		if err != nil {
+			c.Error(err, "read request body")
+			return
+		}
+		c.Data[commitStatusRawBodyKey] = body
+
+		if signature := c.Req.Header.Get("X-Gogs-Signature"); signature != "" {
+			if !database.VerifyCommitStatusSignature(repo.CommitStatusSecret, body, signature) {
+				c.ErrorStatus(http.StatusUnauthorized, errors.New("Invalid signature."))
+				return
+			}
+			c.Data[commitStatusViaSecretKey] = true
+			return
+		}
+
+		if !c.IsTokenAuth {
+			c.ErrorStatus(http.StatusUnauthorized, errors.New("Provide either X-Gogs-Signature or an access token."))
+			return
+		}
+		c.Repo.AccessMode = database.Handle.Permissions().AccessMode(c.Req.Context(), c.UserID(), repo.ID,
+			database.AccessModeOptions{OwnerID: repo.OwnerID, Private: repo.IsPrivate},
+		)
+		if !c.Repo.IsWriter() {
+			c.Status(http.StatusForbidden)
+			return
+		}
+	}
+}
 
 // parseCommitStatusState maps a wire state string to a database state. It
 // accepts the GitHub set (pending, success, failure, error) plus the "running"
@@ -42,6 +112,7 @@ func toCommitStatus(status *database.CommitStatus, creator *database.User) *type
 		TargetURL:   status.TargetURL,
 		Description: status.Description,
 		Context:     status.Context,
+		CreatorName: status.CreatorName,
 		Created:     status.Created,
 		Updated:     status.Updated,
 	}
@@ -59,10 +130,22 @@ func mustEnableCommitStatus(c *context.APIContext) {
 	}
 }
 
-// createCommitStatus reports a CI check outcome for a commit.
+// ciCreatorName labels statuses reported with the repository CI secret.
+const ciCreatorName = "ci"
+
+// createCommitStatus reports a CI check outcome for a commit. It runs behind
+// commitStatusAssignment, which has loaded the repository, buffered the raw
+// body, and authenticated the request.
 //
 // POST /repos/:username/:reponame/statuses/:sha
-func createCommitStatus(c *context.APIContext, form types.CreateStatusOption) {
+func createCommitStatus(c *context.APIContext) {
+	raw, _ := c.Data[commitStatusRawBodyKey].([]byte)
+	var form types.CreateStatusOption
+	if err := json.Unmarshal(raw, &form); err != nil {
+		c.ErrorStatus(http.StatusBadRequest, errors.New("Malformed JSON body."))
+		return
+	}
+
 	state, ok := parseCommitStatusState(form.State)
 	if !ok {
 		c.ErrorStatus(http.StatusUnprocessableEntity, errors.New("Invalid state, must be one of: pending, running, success, failure, error."))
@@ -75,16 +158,23 @@ func createCommitStatus(c *context.APIContext, form types.CreateStatusOption) {
 		return
 	}
 
-	status, err := database.Handle.CommitStatuses().Create(c.Req.Context(), database.CreateCommitStatusOptions{
+	viaSecret, _ := c.Data[commitStatusViaSecretKey].(bool)
+	opts := database.CreateCommitStatusOptions{
 		RepoID:      c.Repo.Repository.ID,
-		CreatorID:   c.User.ID,
 		CommitSHA:   commitID,
 		State:       state,
 		Context:     form.Context,
 		TargetURL:   form.TargetURL,
 		Description: form.Description,
 		MaxContexts: conf.Repository.CommitStatus.MaxContextsPerCommit,
-	})
+	}
+	if viaSecret {
+		opts.CreatorName = ciCreatorName
+	} else {
+		opts.CreatorID = c.User.ID
+	}
+
+	status, err := database.Handle.CommitStatuses().Create(c.Req.Context(), opts)
 	if err != nil {
 		if database.IsErrTooManyCommitStatusContexts(err) {
 			c.ErrorStatus(http.StatusUnprocessableEntity, errors.New("Too many distinct contexts on this commit."))
@@ -94,19 +184,26 @@ func createCommitStatus(c *context.APIContext, form types.CreateStatusOption) {
 		return
 	}
 
-	if err := database.PrepareWebhooks(c.Repo.Repository, database.HookEventTypeStatus, &types.WebhookStatusPayload{
+	payload := &types.WebhookStatusPayload{
 		SHA:         commitID,
 		State:       string(status.State),
 		Context:     status.Context,
 		Description: status.Description,
 		TargetURL:   status.TargetURL,
 		Repository:  c.Repo.Repository.APIFormatLegacy(nil),
-		Sender:      c.User.APIFormat(),
-	}); err != nil {
+	}
+	if !viaSecret {
+		payload.Sender = c.User.APIFormat()
+	}
+	if err := database.PrepareWebhooks(c.Repo.Repository, database.HookEventTypeStatus, payload); err != nil {
 		log.Error("Failed to prepare webhooks for %q: %v", database.HookEventTypeStatus, err)
 	}
 
-	c.JSON(http.StatusCreated, toCommitStatus(status, c.User))
+	var creator *database.User
+	if !viaSecret {
+		creator = c.User
+	}
+	c.JSON(http.StatusCreated, toCommitStatus(status, creator))
 }
 
 // listCommitStatuses returns every status for a ref, all contexts, newest
@@ -166,13 +263,16 @@ func commitStatusesToAPI(c *context.APIContext, statuses []*database.CommitStatu
 	creators := make(map[int64]*database.User)
 	result := make([]*types.CommitStatus, 0, len(statuses))
 	for _, status := range statuses {
-		creator, ok := creators[status.CreatorID]
-		if !ok {
-			u, err := database.Handle.Users().GetByID(c.Req.Context(), status.CreatorID)
-			if err == nil {
-				creator = u
+		var creator *database.User
+		if status.CreatorID != 0 {
+			var ok bool
+			creator, ok = creators[status.CreatorID]
+			if !ok {
+				if u, err := database.Handle.Users().GetByID(c.Req.Context(), status.CreatorID); err == nil {
+					creator = u
+				}
+				creators[status.CreatorID] = creator
 			}
-			creators[status.CreatorID] = creator
 		}
 		result = append(result, toCommitStatus(status, creator))
 	}
