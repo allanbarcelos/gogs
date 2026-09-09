@@ -182,6 +182,17 @@ func TestAllowStateChange(t *testing.T) {
 	postGit := httptest.NewRequest(http.MethodPost, "https://gogs.example.com/alice/repo.git/git-receive-pack", nil)
 	assert.True(t, allowStateChange(postGit))
 
+	postCI := httptest.NewRequest(http.MethodPost, "https://gogs.example.com/api/v1/repos/alice/repo/statuses/deadbeef", nil)
+	postCI.Host = "gogs.example.com"
+	postCI.Header.Set("Origin", "https://jenkins.example.com")
+	assert.True(t, allowStateChange(postCI))
+
+	postCIOtherAPI := httptest.NewRequest(http.MethodPost, "https://gogs.example.com/api/v1/user/emails", nil)
+	postCIOtherAPI.Host = "gogs.example.com"
+	postCIOtherAPI.Header.Set("Origin", "https://jenkins.example.com")
+	postCIOtherAPI.Header.Set("Authorization", "token dummy")
+	assert.False(t, allowStateChange(postCIOtherAPI))
+
 	postNullOrigin := httptest.NewRequest(http.MethodPost, "http://localhost:3000/repo/create", nil)
 	postNullOrigin.Host = "localhost:3000"
 	postNullOrigin.Header.Set("Origin", "null")
