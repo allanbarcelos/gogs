@@ -27,7 +27,12 @@ export function RepoBuilds() {
         <h1 className="mb-4 text-lg font-semibold text-(--color-foreground)">{t("repo.builds")}</h1>
 
         {builds.groups.length === 0 ? (
-          <EmptyState title={t("repo.builds.empty_title")} description={t("repo.builds.empty_desc")} />
+          <EmptyState
+            title={t("repo.builds.empty_title")}
+            description={t("repo.builds.empty_desc")}
+            settingsHref={header.viewerCanAdminister ? subUrl(`/${owner}/${repo}/settings`) : undefined}
+            settingsLabel={t("repo.settings")}
+          />
         ) : (
           <ul className="divide-y divide-(--color-border) overflow-hidden rounded-lg border border-(--color-border)">
             {builds.groups.map((group) => (
@@ -61,6 +66,9 @@ function BuildGroupRow({ owner, repo, group }: { owner: string; repo: string; gr
           <span key={status.id} className="inline-flex items-center gap-1.5">
             <BuildStatePill state={status.state} size="sm" />
             <span className="text-xs text-(--color-muted-foreground)">{status.context}</span>
+            {status.creator ? (
+              <span className="text-xs text-(--color-muted-foreground)">· {status.creator}</span>
+            ) : null}
             {status.targetURL ? (
               <a
                 href={status.targetURL}
@@ -84,11 +92,26 @@ function BuildGroupRow({ owner, repo, group }: { owner: string; repo: string; gr
   );
 }
 
-function EmptyState({ title, description }: { title: string; description: string }) {
+function EmptyState({
+  title,
+  description,
+  settingsHref,
+  settingsLabel,
+}: {
+  title: string;
+  description: string;
+  settingsHref?: string;
+  settingsLabel: string;
+}) {
   return (
     <div className="rounded-lg border border-dashed border-(--color-border) px-6 py-12 text-center">
       <p className="text-sm font-medium text-(--color-foreground)">{title}</p>
       <p className="mx-auto mt-1 max-w-md text-xs text-(--color-muted-foreground)">{description}</p>
+      {settingsHref ? (
+        <a href={settingsHref} className="mt-3 inline-block text-xs text-(--color-primary) hover:underline">
+          {settingsLabel}
+        </a>
+      ) : null}
     </div>
   );
 }

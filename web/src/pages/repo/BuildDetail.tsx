@@ -77,6 +77,9 @@ function StatusRow({ status }: { status: BuildStatus }) {
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-3">
+        {status.creator ? (
+          <span className="text-xs text-(--color-muted-foreground)">{status.creator}</span>
+        ) : null}
         <time
           className="text-xs text-(--color-muted-foreground)"
           dateTime={status.created}
