@@ -248,6 +248,13 @@ func allowStateChange(r *http.Request) bool {
 		return true
 	}
 
+	// Commit status reports authenticate with HMAC or a write token, not a
+	// session cookie. CI hosts send their own Origin; rejecting them would
+	// block the documented Jenkins path when Pages is enabled.
+	if isCommitStatusReport(r) {
+		return true
+	}
+
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		return true
@@ -265,6 +272,26 @@ func allowStateChange(r *http.Request) bool {
 
 	log.Trace("Pages: rejected %s %s origin=%q host=%q site=%q", r.Method, r.URL.Path, origin, r.Host, r.Header.Get("Sec-Fetch-Site"))
 	return false
+}
+
+// isCommitStatusReport reports whether r is POST /api/v1/repos/:owner/:repo/statuses/:sha
+// (with an optional application subpath). Other API writes are not exempted:
+// an invalid token header must not skip the Origin check, because auth then
+// falls through to the session cookie.
+func isCommitStatusReport(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	path := r.URL.Path
+	if sub := strings.TrimSuffix(conf.Server.Subpath, "/"); sub != "" && sub != "/" {
+		path = strings.TrimPrefix(path, sub)
+	}
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 7 {
+		return false
+	}
+	return parts[0] == "api" && parts[1] == "v1" && parts[2] == "repos" && parts[5] == "statuses" &&
+		parts[3] != "" && parts[4] != "" && parts[6] != ""
 }
 
 func serve(w http.ResponseWriter, r *http.Request, sites store, ownerName, repoName, filePath string) {
