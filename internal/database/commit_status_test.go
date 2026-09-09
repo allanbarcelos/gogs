@@ -63,6 +63,7 @@ func TestCommitStatuses(t *testing.T) {
 		{"CreateDefaultContext", commitStatusesCreateDefaultContext},
 		{"CreateMaxContexts", commitStatusesCreateMaxContexts},
 		{"List", commitStatusesList},
+		{"ListByRepo", commitStatusesListByRepo},
 		{"Latest", commitStatusesLatest},
 		{"CombinedState", commitStatusesCombinedState},
 		{"DeleteBefore", commitStatusesDeleteBefore},
@@ -162,6 +163,26 @@ func commitStatusesList(t *testing.T, ctx context.Context, s *CommitStatusesStor
 	assert.Equal(t, CommitStatusSuccess, got[0].State)
 	assert.Equal(t, CommitStatusRunning, got[1].State)
 	assert.Equal(t, CommitStatusPending, got[2].State)
+}
+
+func commitStatusesListByRepo(t *testing.T, ctx context.Context, s *CommitStatusesStore) {
+	for _, sha := range []string{"aaa", "bbb", "ccc"} {
+		_, err := s.Create(ctx, CreateCommitStatusOptions{RepoID: 1, CreatorID: 2, CommitSHA: sha, State: CommitStatusSuccess, Context: "jenkins/build"})
+		require.NoError(t, err)
+	}
+	// Another repository must not leak in.
+	_, err := s.Create(ctx, CreateCommitStatusOptions{RepoID: 2, CreatorID: 2, CommitSHA: "zzz", State: CommitStatusSuccess, Context: "jenkins/build"})
+	require.NoError(t, err)
+
+	got, err := s.ListByRepo(ctx, 1, 100)
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+	// Newest first.
+	assert.Equal(t, "ccc", got[0].CommitSHA)
+
+	limited, err := s.ListByRepo(ctx, 1, 2)
+	require.NoError(t, err)
+	assert.Len(t, limited, 2)
 }
 
 func commitStatusesLatest(t *testing.T, ctx context.Context, s *CommitStatusesStore) {

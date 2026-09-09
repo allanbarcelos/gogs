@@ -8,6 +8,7 @@ import {
   GitFork,
   GitPullRequest,
   Globe,
+  History,
   Link as LinkIcon,
   Lock,
   Menu,
@@ -40,7 +41,7 @@ import { cn } from "@/lib/utils";
 // user can see the active indicator without opening the menu.
 const MOBILE_INLINE_LIMIT = 3;
 
-export type RepoTab = "code" | "issues" | "pulls" | "commits" | "wiki" | "settings";
+export type RepoTab = "code" | "issues" | "pulls" | "commits" | "builds" | "wiki" | "settings";
 
 export interface RepoHeaderProps {
   repo: RepoHeaderData;
@@ -219,6 +220,9 @@ function buildTabs(repo: RepoHeaderData, repoLink: string, t: TFunction): TabDes
       label: t("pull_requests"),
       badge: repo.openPullRequestCount,
     });
+  }
+  if (repo.commitStatusEnabled !== false) {
+    tabs.push({ key: "builds", href: `${repoLink}/builds`, icon: History, label: t("repo.builds") });
   }
   if (repo.wikiEnabled !== false) {
     tabs.push({ key: "wiki", href: `${repoLink}/wiki`, icon: FileText, label: t("repo.wiki") });

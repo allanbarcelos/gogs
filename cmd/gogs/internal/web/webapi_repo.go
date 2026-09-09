@@ -33,6 +33,7 @@ type repoHeader struct {
 	PullRequestsEnabled  bool   `json:"pullRequestsEnabled"`
 	OpenPullRequestCount int    `json:"openPullRequestCount"`
 	WikiEnabled          bool   `json:"wikiEnabled"`
+	CommitStatusEnabled  bool   `json:"commitStatusEnabled"`
 
 	ViewerCanAdminister bool `json:"viewerCanAdminister"`
 	ViewerIsWatching    bool `json:"viewerIsWatching"`
@@ -72,6 +73,7 @@ func getRepoHeader(repoCtx *repoContext) (statusCode int, resp *repoHeader, err 
 		PullRequestsEnabled:  repo.AllowsPulls(),
 		OpenPullRequestCount: repo.NumPulls - repo.NumClosedPulls,
 		WikiEnabled:          wikiEnabled,
+		CommitStatusEnabled:  repo.EnableCommitStatus,
 
 		ViewerCanAdminister: repoCtx.ViewerCanAdminister(),
 		ViewerIsWatching:    database.IsWatching(repoCtx.ViewerID, repo.ID),

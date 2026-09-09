@@ -13,6 +13,7 @@ export interface RepoHeaderData {
   issuesEnabled: boolean;
   pullRequestsEnabled: boolean;
   wikiEnabled: boolean;
+  commitStatusEnabled: boolean;
   watchCount: number;
   starCount: number;
   forkCount: number;
@@ -33,6 +34,64 @@ export function repoHeaderQuery(owner: string, name: string) {
       });
       if (!res.ok) throw await loaderResponseError(res);
       return (await res.json()) as RepoHeaderData;
+    },
+  });
+}
+
+export type CommitStatusState = "pending" | "running" | "success" | "failure" | "error";
+
+export interface BuildStatus {
+  id: number;
+  state: CommitStatusState;
+  context: string;
+  description: string;
+  targetURL: string;
+  creator?: string;
+  created: string;
+}
+
+export interface BuildGroup {
+  sha: string;
+  state: CommitStatusState | "";
+  statuses: BuildStatus[];
+}
+
+export interface RepoBuildsData {
+  enabled: boolean;
+  groups: BuildGroup[];
+}
+
+export interface CommitStatusesData {
+  sha: string;
+  state: CommitStatusState | "";
+  latest: BuildStatus[];
+  attempts: BuildStatus[];
+}
+
+export function repoBuildsQuery(owner: string, name: string) {
+  return queryOptions({
+    queryKey: ["repo", owner, name, "builds"] as const,
+    queryFn: async ({ signal }) => {
+      const res = await fetch(subUrl(`/api/web/${owner}/${name}/builds`), {
+        credentials: "same-origin",
+        signal,
+      });
+      if (!res.ok) throw await loaderResponseError(res);
+      return (await res.json()) as RepoBuildsData;
+    },
+  });
+}
+
+export function repoCommitStatusesQuery(owner: string, name: string, sha: string) {
+  return queryOptions({
+    queryKey: ["repo", owner, name, "commit", sha, "statuses"] as const,
+    queryFn: async ({ signal }) => {
+      const res = await fetch(subUrl(`/api/web/${owner}/${name}/commit/${sha}/statuses`), {
+        credentials: "same-origin",
+        signal,
+      });
+      if (!res.ok) throw await loaderResponseError(res);
+      return (await res.json()) as CommitStatusesData;
     },
   });
 }

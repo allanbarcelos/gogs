@@ -197,6 +197,21 @@ func (s *CommitStatusesStore) Create(ctx context.Context, opts CreateCommitStatu
 	return status, nil
 }
 
+// ListByRepo returns the most recent status rows for a repository across every
+// commit, newest first, capped at "limit". A non-positive limit defaults to
+// 100.
+func (s *CommitStatusesStore) ListByRepo(ctx context.Context, repoID int64, limit int) ([]*CommitStatus, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	var statuses []*CommitStatus
+	return statuses, s.db.WithContext(ctx).
+		Where("repo_id = ?", repoID).
+		Order("id DESC").
+		Limit(limit).
+		Find(&statuses).Error
+}
+
 // List returns every status row for the given commit, newest first.
 func (s *CommitStatusesStore) List(ctx context.Context, repoID int64, commitSHA string) ([]*CommitStatus, error) {
 	var statuses []*CommitStatus
