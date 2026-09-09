@@ -74,7 +74,7 @@ function BuildGroupRow({ owner, repo, group }: { owner: string; repo: string; gr
                 href={status.targetURL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-(--color-muted-foreground) hover:text-(--color-foreground)"
+                className="inline-flex size-6 items-center justify-center text-(--color-muted-foreground) hover:text-(--color-foreground)"
                 aria-label={t("repo.builds.view_on_ci")}
               >
                 <ExternalLink className="size-3.5" aria-hidden />

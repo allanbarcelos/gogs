@@ -31,10 +31,10 @@ RETENTION_DAYS = 90
 
 ## Get the CI secret
 
-Each repository has a per-repository **CI secret**. It is minted the first time
-you turn on the Builds toggle. Open **Settings**, scroll to **CI secret**, and
-copy it. Use **Regenerate** to rotate it; the old value stops working
-immediately.
+Each repository has a per-repository **CI secret**. It is minted when the
+repository is created (or when Builds is turned on, if it was off). Open
+**Settings**, scroll to **CI secret**, and copy it. Use **Regenerate** to rotate
+it; the old value stops working immediately.
 
 No user account and no personal access token are involved. The secret only
 authorizes reporting statuses to that one repository.

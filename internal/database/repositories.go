@@ -147,6 +147,9 @@ func (s *RepositoriesStore) Create(ctx context.Context, ownerID int64, opts Crea
 		IsFork:             opts.Fork,
 		ForkID:             opts.ForkID,
 	}
+	if err = ensureCommitStatusSecret(repo); err != nil {
+		return nil, err
+	}
 	return repo, s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		err = tx.Create(repo).Error
 		if err != nil {

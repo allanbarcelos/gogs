@@ -246,25 +246,47 @@ func PrepareViewPullInfo(c *context.Context, issue *database.Issue) *gitx.PullRe
 	return prMeta
 }
 
+// pullHeadCommitSHA is the SHA CI reports against: the live head branch while
+// the PR is open, or the second parent of a merge commit after merge
+// (fast-forwards have one parent, so the merge SHA itself is the head).
+func pullHeadCommitSHA(c *context.Context, pull *database.PullRequest) string {
+	if !pull.HasMerged {
+		if pull.HeadRepo == nil {
+			return ""
+		}
+		headGitRepo, err := git.Open(pull.HeadRepo.RepoPath())
+		if err != nil {
+			return ""
+		}
+		sha, _ := headGitRepo.BranchCommitID(pull.HeadBranch)
+		return sha
+	}
+
+	sha := pull.MergedCommitID
+	if sha == "" || c.Repo.GitRepo == nil {
+		return sha
+	}
+	commit, err := c.Repo.GitRepo.CatFileCommit(sha)
+	if err != nil || commit.ParentsCount() < 2 {
+		return sha
+	}
+	parent, err := commit.ParentID(1)
+	if err != nil {
+		return sha
+	}
+	return parent.String()
+}
+
 // preparePullCommitStatus loads the latest commit status per context for the
 // head commit of a pull request, along with the combined state, and stashes
 // them for the conversation template.
 func preparePullCommitStatus(c *context.Context, issue *database.Issue) {
 	repo := c.Repo.Repository
-	if !repo.EnableCommitStatus || !issue.IsPull {
+	if !repo.ShowsCommitStatus() || !issue.IsPull {
 		return
 	}
 	pull := issue.PullRequest
-
-	var sha string
-	switch {
-	case pull.HasMerged:
-		sha = pull.MergedCommitID
-	case pull.HeadRepo != nil:
-		if headGitRepo, err := git.Open(pull.HeadRepo.RepoPath()); err == nil {
-			sha, _ = headGitRepo.BranchCommitID(pull.HeadBranch)
-		}
-	}
+	sha := pullHeadCommitSHA(c, pull)
 	if sha == "" {
 		return
 	}

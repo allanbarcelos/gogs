@@ -234,6 +234,7 @@
 							</div>
 						{{end}}
 
+						{{if CommitStatusInstanceEnabled}}
 						<!-- Builds -->
 						<div class="inline field">
 							<label>{{.i18n.Tr "repo.builds"}}</label>
@@ -242,13 +243,14 @@
 								<label>{{.i18n.Tr "repo.settings.enable_commit_status_desc"}}</label>
 							</div>
 						</div>
+						{{end}}
 
 						<div class="field">
 							<button class="ui green button">{{$.i18n.Tr "repo.settings.update_settings"}}</button>
 						</div>
 					</form>
 
-					{{if .Repository.EnableCommitStatus}}
+					{{if .Repository.ShowsCommitStatus}}
 						<div class="ui divider"></div>
 						<h4 class="ui header">{{.i18n.Tr "repo.settings.commit_status_secret"}}</h4>
 						<p class="help">{{.i18n.Tr "repo.settings.commit_status_secret_desc"}}</p>

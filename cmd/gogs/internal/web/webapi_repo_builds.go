@@ -122,28 +122,28 @@ func getRepoBuilds(c flamego.Context, repoCtx *repoContext) (int, *repoBuilds, e
 	}
 
 	repo := repoCtx.Repo
-	if !repo.EnableCommitStatus {
+	if !repo.ShowsCommitStatus() {
 		return http.StatusOK, &repoBuilds{Enabled: false, Groups: []*buildGroup{}}, nil
 	}
 
 	ctx := c.Request().Context()
-	rows, err := database.Handle.CommitStatuses().ListByRepo(ctx, repo.ID, 200)
+	shas, rows, err := database.Handle.CommitStatuses().ListByRecentCommits(ctx, repo.ID, 50)
 	if err != nil {
 		log.Error("getRepoBuilds: list statuses for repo %d: %v", repo.ID, err)
 		return http.StatusInternalServerError, nil, errors.Wrap(err, "list statuses")
 	}
 
 	resolver := newCreatorNameResolver(ctx)
-	groups := make([]*buildGroup, 0)
-	index := make(map[string]*buildGroup)
-	perGroupRows := make(map[string][]*database.CommitStatus)
+	groups := make([]*buildGroup, 0, len(shas))
+	index := make(map[string]*buildGroup, len(shas))
+	perGroupRows := make(map[string][]*database.CommitStatus, len(shas))
 
+	for _, sha := range shas {
+		g := &buildGroup{SHA: sha}
+		index[sha] = g
+		groups = append(groups, g)
+	}
 	for _, row := range rows {
-		if _, ok := index[row.CommitSHA]; !ok {
-			g := &buildGroup{SHA: row.CommitSHA}
-			index[row.CommitSHA] = g
-			groups = append(groups, g)
-		}
 		perGroupRows[row.CommitSHA] = append(perGroupRows[row.CommitSHA], row)
 	}
 
@@ -168,7 +168,7 @@ func getRepoCommitStatuses(c flamego.Context, repoCtx *repoContext) (int, *repoC
 	}
 
 	repo := repoCtx.Repo
-	if !repo.EnableCommitStatus {
+	if !repo.ShowsCommitStatus() {
 		return http.StatusNotFound, nil, errors.New("builds are disabled for this repository")
 	}
 

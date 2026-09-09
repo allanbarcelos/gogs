@@ -24,6 +24,20 @@ func GenerateCommitStatusSecret() (string, error) {
 	return strx.RandomChars(40)
 }
 
+// ensureCommitStatusSecret mints a CI secret when the builds feature is on and
+// the repository does not have one yet.
+func ensureCommitStatusSecret(repo *Repository) error {
+	if !repo.EnableCommitStatus || repo.CommitStatusSecret != "" {
+		return nil
+	}
+	secret, err := GenerateCommitStatusSecret()
+	if err != nil {
+		return errors.Wrap(err, "generate commit status secret")
+	}
+	repo.CommitStatusSecret = secret
+	return nil
+}
+
 // VerifyCommitStatusSignature reports whether "signature" is a valid
 // HMAC-SHA256 of "body" keyed by "secret". The signature may carry a
 // "sha256=" prefix, matching the header the outgoing webhooks use.
@@ -236,7 +250,8 @@ func (s *CommitStatusesStore) Create(ctx context.Context, opts CreateCommitStatu
 
 // ListByRepo returns the most recent status rows for a repository across every
 // commit, newest first, capped at "limit". A non-positive limit defaults to
-// 100.
+// 100. Prefer ListByRecentCommits when deriving combined state so a busy
+// commit cannot starve quieter ones.
 func (s *CommitStatusesStore) ListByRepo(ctx context.Context, repoID int64, limit int) ([]*CommitStatus, error) {
 	if limit <= 0 {
 		limit = 100
@@ -247,6 +262,47 @@ func (s *CommitStatusesStore) ListByRepo(ctx context.Context, repoID int64, limi
 		Order("id DESC").
 		Limit(limit).
 		Find(&statuses).Error
+}
+
+// ListByRecentCommits returns the distinct most recently updated commit SHAs
+// (newest first, capped at commitLimit) and every status row for those SHAs,
+// newest first. Combined state for a commit must be derived from this set, not
+// from a raw row window.
+func (s *CommitStatusesStore) ListByRecentCommits(ctx context.Context, repoID int64, commitLimit int) ([]string, []*CommitStatus, error) {
+	if commitLimit <= 0 {
+		commitLimit = 50
+	}
+
+	var shas []string
+	err := s.db.WithContext(ctx).
+		Model(new(CommitStatus)).
+		Select("commit_sha").
+		Where("repo_id = ?", repoID).
+		Group("commit_sha").
+		Order("MAX(id) DESC").
+		Limit(commitLimit).
+		Pluck("commit_sha", &shas).Error
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "list recent commit SHAs")
+	}
+	if len(shas) == 0 {
+		return shas, nil, nil
+	}
+
+	var statuses []*CommitStatus
+	err = s.db.WithContext(ctx).
+		Where("repo_id = ? AND commit_sha IN ?", repoID, shas).
+		Order("id DESC").
+		Find(&statuses).Error
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "list statuses for recent commits")
+	}
+	return shas, statuses, nil
+}
+
+// DeleteByRepo removes every status row for the given repository.
+func (s *CommitStatusesStore) DeleteByRepo(ctx context.Context, repoID int64) error {
+	return s.db.WithContext(ctx).Where("repo_id = ?", repoID).Delete(new(CommitStatus)).Error
 }
 
 // List returns every status row for the given commit, newest first.

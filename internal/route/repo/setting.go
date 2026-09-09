@@ -37,6 +37,21 @@ func Settings(c *context.Context) {
 	c.Title("repo.settings")
 	c.PageIs("SettingsOptions")
 	c.RequireAutosize()
+
+	repo := c.Repo.Repository
+	if repo.ShowsCommitStatus() && repo.CommitStatusSecret == "" {
+		secret, err := database.GenerateCommitStatusSecret()
+		if err != nil {
+			c.Error(err, "generate commit status secret")
+			return
+		}
+		repo.CommitStatusSecret = secret
+		if err := database.UpdateRepository(repo, false); err != nil {
+			c.Error(err, "save commit status secret")
+			return
+		}
+	}
+
 	c.Success(tmplRepoSettingsOptions)
 }
 
@@ -180,7 +195,9 @@ func SettingsPost(c *context.Context, f form.RepoSetting) {
 		repo.EnablePulls = f.EnablePulls
 		repo.PullsIgnoreWhitespace = f.PullsIgnoreWhitespace
 		repo.PullsAllowRebase = f.PullsAllowRebase
-		repo.EnableCommitStatus = f.EnableCommitStatus
+		if conf.Repository.CommitStatus.Enabled {
+			repo.EnableCommitStatus = f.EnableCommitStatus
+		}
 
 		if !repo.EnableWiki || repo.EnableExternalWiki {
 			repo.AllowPublicWiki = false

@@ -1,11 +1,15 @@
 package v1
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"gogs.io/gogs/internal/database"
 )
@@ -57,6 +61,79 @@ func TestParseCommitStatusState(t *testing.T) {
 			got, ok := parseCommitStatusState(tc.in)
 			assert.Equal(t, tc.valid, ok)
 			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestDecideCommitStatusAuth(t *testing.T) {
+	t.Parallel()
+
+	secret := "s3cr3t"
+	body := []byte(`{"state":"success"}`)
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, err := mac.Write(body)
+	require.NoError(t, err)
+	goodSig := hex.EncodeToString(mac.Sum(nil))
+
+	tests := []struct {
+		name string
+		in   commitStatusAuthInput
+		want commitStatusAuthOutcome
+	}{
+		{
+			name: "valid HMAC",
+			in:   commitStatusAuthInput{Signature: goodSig, Secret: secret, Body: body},
+			want: commitStatusAuthViaSecret,
+		},
+		{
+			name: "valid HMAC with prefix",
+			in:   commitStatusAuthInput{Signature: "sha256=" + goodSig, Secret: secret, Body: body},
+			want: commitStatusAuthViaSecret,
+		},
+		{
+			name: "empty secret is invalid HMAC",
+			in:   commitStatusAuthInput{Signature: goodSig, Secret: "", Body: body},
+			want: commitStatusAuthBadSignature,
+		},
+		{
+			name: "bad HMAC on private repo is 404",
+			in:   commitStatusAuthInput{Private: true, Signature: "deadbeef", Secret: secret, Body: body},
+			want: commitStatusAuthNotFound,
+		},
+		{
+			name: "bad HMAC on public repo is 401",
+			in:   commitStatusAuthInput{Signature: "deadbeef", Secret: secret, Body: body},
+			want: commitStatusAuthBadSignature,
+		},
+		{
+			name: "missing auth on private repo is 404",
+			in:   commitStatusAuthInput{Private: true},
+			want: commitStatusAuthNotFound,
+		},
+		{
+			name: "missing auth on public repo is 401",
+			in:   commitStatusAuthInput{},
+			want: commitStatusAuthUnauthorized,
+		},
+		{
+			name: "write token",
+			in:   commitStatusAuthInput{TokenAuth: true, HasAccess: true, IsWriter: true},
+			want: commitStatusAuthViaToken,
+		},
+		{
+			name: "read token is forbidden",
+			in:   commitStatusAuthInput{TokenAuth: true, HasAccess: true, IsWriter: false},
+			want: commitStatusAuthForbidden,
+		},
+		{
+			name: "token without access is 404",
+			in:   commitStatusAuthInput{TokenAuth: true, HasAccess: false, IsWriter: false},
+			want: commitStatusAuthNotFound,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, decideCommitStatusAuth(tc.in))
 		})
 	}
 }

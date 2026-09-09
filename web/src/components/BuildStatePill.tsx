@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { buildStateAppearance } from "@/lib/build-status";
 import type { CommitStatusState } from "@/lib/queries/repo";
 import { cn } from "@/lib/utils";
@@ -18,9 +19,14 @@ export function BuildStatePill({ state, size = "md", className }: BuildStatePill
 
   if (size === "sm") {
     return (
-      <span className={cn("inline-flex items-center", toneClass, className)} title={label} aria-label={label}>
-        <Icon className={cn("size-4", spin && "animate-spin")} aria-hidden />
-      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className={cn("inline-flex size-6 items-center justify-center", toneClass, className)} aria-label={label}>
+            <Icon className={cn("size-4", spin && "animate-spin")} aria-hidden />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
     );
   }
 

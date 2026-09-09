@@ -78,43 +78,94 @@ func commitStatusAssignment() macaron.Handler {
 		}
 		c.Data[commitStatusRawBodyKey] = body
 
-		// For a repository the caller has no valid credentials for, mirror
-		// repoAssignment() and respond 404 so a private repository stays
-		// indistinguishable from one that does not exist. Public repositories,
-		// whose existence is not a secret, get the informative status.
-		deny := func(status int, msg string) {
-			if repo.IsPrivate {
-				c.NotFound()
-				return
-			}
-			c.ErrorStatus(status, errors.New(msg))
+		signature := c.Req.Header.Get("X-Gogs-Signature")
+		in := commitStatusAuthInput{
+			Private:   repo.IsPrivate,
+			Signature: signature,
+			Secret:    repo.CommitStatusSecret,
+			Body:      body,
+			TokenAuth: c.IsTokenAuth,
+		}
+		if signature == "" && c.IsTokenAuth {
+			c.Repo.AccessMode = database.Handle.Permissions().AccessMode(c.Req.Context(), c.UserID(), repo.ID,
+				database.AccessModeOptions{OwnerID: repo.OwnerID, Private: repo.IsPrivate},
+			)
+			in.HasAccess = c.Repo.HasAccess()
+			in.IsWriter = c.Repo.IsWriter()
 		}
 
-		if signature := c.Req.Header.Get("X-Gogs-Signature"); signature != "" {
-			if !database.VerifyCommitStatusSignature(repo.CommitStatusSecret, body, signature) {
-				deny(http.StatusUnauthorized, "Invalid signature.")
-				return
-			}
+		switch decideCommitStatusAuth(in) {
+		case commitStatusAuthViaSecret:
 			c.Data[commitStatusViaSecretKey] = true
 			return
-		}
-
-		if !c.IsTokenAuth {
-			deny(http.StatusUnauthorized, "Provide either X-Gogs-Signature or an access token.")
+		case commitStatusAuthViaToken:
 			return
-		}
-		c.Repo.AccessMode = database.Handle.Permissions().AccessMode(c.Req.Context(), c.UserID(), repo.ID,
-			database.AccessModeOptions{OwnerID: repo.OwnerID, Private: repo.IsPrivate},
-		)
-		if !c.Repo.HasAccess() {
+		case commitStatusAuthNotFound:
+			c.NotFound()
+			return
+		case commitStatusAuthForbidden:
+			c.Status(http.StatusForbidden)
+			return
+		case commitStatusAuthUnauthorized:
+			c.ErrorStatus(http.StatusUnauthorized, errors.New("Provide either X-Gogs-Signature or an access token."))
+			return
+		case commitStatusAuthBadSignature:
+			c.ErrorStatus(http.StatusUnauthorized, errors.New("Invalid signature."))
+			return
+		default:
 			c.NotFound()
 			return
 		}
-		if !c.Repo.IsWriter() {
-			c.Status(http.StatusForbidden)
-			return
-		}
 	}
+}
+
+type commitStatusAuthInput struct {
+	Private   bool
+	Signature string
+	Secret    string
+	Body      []byte
+	TokenAuth bool
+	HasAccess bool
+	IsWriter  bool
+}
+
+type commitStatusAuthOutcome int
+
+const (
+	commitStatusAuthViaSecret commitStatusAuthOutcome = iota
+	commitStatusAuthViaToken
+	commitStatusAuthNotFound
+	commitStatusAuthForbidden
+	commitStatusAuthUnauthorized
+	commitStatusAuthBadSignature
+)
+
+// decideCommitStatusAuth chooses how a status report is authenticated. A
+// private repository that the caller cannot prove access to is indistinguishable
+// from a missing one (404).
+func decideCommitStatusAuth(in commitStatusAuthInput) commitStatusAuthOutcome {
+	if in.Signature != "" {
+		if !database.VerifyCommitStatusSignature(in.Secret, in.Body, in.Signature) {
+			if in.Private {
+				return commitStatusAuthNotFound
+			}
+			return commitStatusAuthBadSignature
+		}
+		return commitStatusAuthViaSecret
+	}
+	if !in.TokenAuth {
+		if in.Private {
+			return commitStatusAuthNotFound
+		}
+		return commitStatusAuthUnauthorized
+	}
+	if !in.HasAccess {
+		return commitStatusAuthNotFound
+	}
+	if !in.IsWriter {
+		return commitStatusAuthForbidden
+	}
+	return commitStatusAuthViaToken
 }
 
 // parseCommitStatusState maps a wire state string to a database state. It
@@ -156,10 +207,11 @@ func toCommitStatus(status *database.CommitStatus, creator *database.User) *type
 }
 
 // mustEnableCommitStatus renders 404 when the repository has the builds feature
-// turned off.
+// turned off, or when the instance has disabled commit statuses.
 func mustEnableCommitStatus(c *context.APIContext) {
-	if !c.Repo.Repository.EnableCommitStatus {
+	if !c.Repo.Repository.ShowsCommitStatus() {
 		c.NotFound()
+		return
 	}
 }
 

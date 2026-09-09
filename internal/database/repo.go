@@ -235,6 +235,13 @@ func (r *Repository) BeforeInsert() {
 	r.UpdatedUnix = r.CreatedUnix
 }
 
+// ShowsCommitStatus reports whether the Builds tab and commit status API are
+// active for this repository: the instance switch and the per-repo flag must
+// both be on.
+func (r *Repository) ShowsCommitStatus() bool {
+	return conf.Repository.CommitStatus.Enabled && r.EnableCommitStatus
+}
+
 func (r *Repository) AfterSet(colName string, _ xorm.Cell) {
 	switch colName {
 	case "default_branch":
@@ -1143,6 +1150,9 @@ func createRepository(e *xorm.Session, doer, owner *User, repo *Repository) (err
 	if err = isRepoNameAllowed(repo.Name); err != nil {
 		return err
 	}
+	if err = ensureCommitStatusSecret(repo); err != nil {
+		return err
+	}
 
 	has, err := isRepositoryExist(e, owner, repo.Name)
 	if err != nil {
@@ -1747,6 +1757,12 @@ func DeleteRepository(ownerID, repoID int64) error {
 
 	if err = sess.Commit(); err != nil {
 		return errors.Newf("commit: %v", err)
+	}
+
+	if Handle != nil {
+		if err = Handle.CommitStatuses().DeleteByRepo(context.TODO(), repoID); err != nil {
+			log.Error("Failed to delete commit statuses for repository %d: %v", repoID, err)
+		}
 	}
 
 	// Remove repository files.
@@ -2558,16 +2574,17 @@ func ForkRepository(doer, owner *User, baseRepo *Repository, name, desc string) 
 	}
 
 	repo := &Repository{
-		OwnerID:       owner.ID,
-		Owner:         owner,
-		Name:          name,
-		LowerName:     strings.ToLower(name),
-		Description:   desc,
-		DefaultBranch: baseRepo.DefaultBranch,
-		IsPrivate:     baseRepo.IsPrivate,
-		IsUnlisted:    baseRepo.IsUnlisted,
-		IsFork:        true,
-		ForkID:        baseRepo.ID,
+		OwnerID:            owner.ID,
+		Owner:              owner,
+		Name:               name,
+		LowerName:          strings.ToLower(name),
+		Description:        desc,
+		DefaultBranch:      baseRepo.DefaultBranch,
+		IsPrivate:          baseRepo.IsPrivate,
+		IsUnlisted:         baseRepo.IsUnlisted,
+		IsFork:             true,
+		ForkID:             baseRepo.ID,
+		EnableCommitStatus: true,
 	}
 
 	sess := x.NewSession()

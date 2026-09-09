@@ -154,6 +154,7 @@ func reposCreate(t *testing.T, ctx context.Context, s *RepositoriesStore) {
 	assert.Equal(t, s.db.NowFunc().Format(time.RFC3339), repo.Created.UTC().Format(time.RFC3339))
 	assert.Equal(t, 1, repo.NumWatches) // The owner is watching the repo by default.
 	assert.True(t, repo.EnableCommitStatus)
+	assert.Len(t, repo.CommitStatusSecret, 40)
 }
 
 func reposGetByCollaboratorID(t *testing.T, ctx context.Context, s *RepositoriesStore) {

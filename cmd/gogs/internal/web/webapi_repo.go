@@ -73,7 +73,7 @@ func getRepoHeader(repoCtx *repoContext) (statusCode int, resp *repoHeader, err 
 		PullRequestsEnabled:  repo.AllowsPulls(),
 		OpenPullRequestCount: repo.NumPulls - repo.NumClosedPulls,
 		WikiEnabled:          wikiEnabled,
-		CommitStatusEnabled:  repo.EnableCommitStatus,
+		CommitStatusEnabled:  repo.ShowsCommitStatus(),
 
 		ViewerCanAdminister: repoCtx.ViewerCanAdminister(),
 		ViewerIsWatching:    database.IsWatching(repoCtx.ViewerID, repo.ID),

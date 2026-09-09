@@ -20,7 +20,7 @@ const APPEARANCE: Record<CommitStatusState, BuildStateAppearance> = {
   running: {
     labelKey: "repo.builds.state_running",
     Icon: Loader2,
-    className: "text-(--color-warning,oklch(0.795_0.184_86.047))",
+    className: "text-(--color-warning)",
     spin: true,
   },
   pending: { labelKey: "repo.builds.state_pending", Icon: Circle, className: "text-(--color-muted-foreground)" },

@@ -106,6 +106,8 @@ func TestCommitStatuses(t *testing.T) {
 		{"CreateMaxContexts", commitStatusesCreateMaxContexts},
 		{"List", commitStatusesList},
 		{"ListByRepo", commitStatusesListByRepo},
+		{"ListByRecentCommits", commitStatusesListByRecentCommits},
+		{"DeleteByRepo", commitStatusesDeleteByRepo},
 		{"Latest", commitStatusesLatest},
 		{"CombinedState", commitStatusesCombinedState},
 		{"DeleteBefore", commitStatusesDeleteBefore},
@@ -243,6 +245,50 @@ func commitStatusesListByRepo(t *testing.T, ctx context.Context, s *CommitStatus
 	limited, err := s.ListByRepo(ctx, 1, 2)
 	require.NoError(t, err)
 	assert.Len(t, limited, 2)
+}
+
+func commitStatusesListByRecentCommits(t *testing.T, ctx context.Context, s *CommitStatusesStore) {
+	// One quiet commit, then a busy commit with many attempts, then another quiet one.
+	_, err := s.Create(ctx, CreateCommitStatusOptions{RepoID: 1, CreatorID: 2, CommitSHA: "quiet-old", State: CommitStatusSuccess, Context: "jenkins/build"})
+	require.NoError(t, err)
+	for i := 0; i < 5; i++ {
+		_, err := s.Create(ctx, CreateCommitStatusOptions{RepoID: 1, CreatorID: 2, CommitSHA: "busy", State: CommitStatusPending, Context: "jenkins/build"})
+		require.NoError(t, err)
+	}
+	_, err = s.Create(ctx, CreateCommitStatusOptions{RepoID: 1, CreatorID: 2, CommitSHA: "quiet-new", State: CommitStatusFailure, Context: "jenkins/e2e"})
+	require.NoError(t, err)
+	_, err = s.Create(ctx, CreateCommitStatusOptions{RepoID: 2, CreatorID: 2, CommitSHA: "other-repo", State: CommitStatusSuccess, Context: "jenkins/build"})
+	require.NoError(t, err)
+
+	shas, rows, err := s.ListByRecentCommits(ctx, 1, 2)
+	require.NoError(t, err)
+	require.Equal(t, []string{"quiet-new", "busy"}, shas)
+	require.NotEmpty(t, rows)
+	for _, row := range rows {
+		assert.Contains(t, []string{"quiet-new", "busy"}, row.CommitSHA)
+	}
+
+	emptySHAs, emptyRows, err := s.ListByRecentCommits(ctx, 99, 10)
+	require.NoError(t, err)
+	assert.Empty(t, emptySHAs)
+	assert.Empty(t, emptyRows)
+}
+
+func commitStatusesDeleteByRepo(t *testing.T, ctx context.Context, s *CommitStatusesStore) {
+	_, err := s.Create(ctx, CreateCommitStatusOptions{RepoID: 1, CreatorID: 2, CommitSHA: "aaa", State: CommitStatusSuccess, Context: "jenkins/build"})
+	require.NoError(t, err)
+	_, err = s.Create(ctx, CreateCommitStatusOptions{RepoID: 2, CreatorID: 2, CommitSHA: "bbb", State: CommitStatusSuccess, Context: "jenkins/build"})
+	require.NoError(t, err)
+
+	err = s.DeleteByRepo(ctx, 1)
+	require.NoError(t, err)
+
+	left, err := s.ListByRepo(ctx, 1, 100)
+	require.NoError(t, err)
+	assert.Empty(t, left)
+	kept, err := s.ListByRepo(ctx, 2, 100)
+	require.NoError(t, err)
+	require.Len(t, kept, 1)
 }
 
 func commitStatusesLatest(t *testing.T, ctx context.Context, s *CommitStatusesStore) {

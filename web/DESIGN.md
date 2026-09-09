@@ -36,6 +36,7 @@ Use these tokens. Don't introduce raw hex values in components.
 - `--color-secondary` / `--color-secondary-foreground`: neutral support fill. Available for chips, tags, low-emphasis fills.
 - `--color-destructive` / `--color-destructive-foreground`: error and danger. The 404 page uses `text-(--color-destructive)` on the `fatal:` token, always paired with the word itself (color is never the sole signal).
 - `--color-success`: affirmative state for signature verification badges and copy-confirm checkmarks. Lighter in dark mode (`#4ade80`) than light (`#15803d`) so it reads on both backgrounds. Always pair with a label or icon, never color alone.
+- `--color-warning`: in-progress or caution state. Used by the Builds running pill. Amber that still meets 4.5:1 on `--color-background` in light mode (`#b45309`) and reads on dark (`#fbbf24`). Always pair with a label or icon.
 - `--color-diff-added` / `--color-diff-removed`: diff change markers (the +/- dots in the diff toolbar stats row, and any future per-line tints). Separate from `--color-success`/`--color-destructive` so the diff palette can drift toward the universal git green/red without dragging the success/error semantics along.
 - `--color-ring`: keyboard focus ring color. Don't override per-component. If a default ring looks wrong, fix it at the token level.
 
@@ -52,7 +53,7 @@ Don't use foreground vs muted-foreground to imply "primary action" vs "secondary
 
 **Ad-hoc colors**
 
-The traffic-light cluster in the faux-terminal frame uses one ad-hoc value: the amber dot falls back to `oklch(0.795 0.184 86.047)` via `bg-(--color-warning,...)`. There is no `--color-warning` token defined, so the fallback always wins. This is deliberate. Promoting it to a real token would invite reuse, and warning is not a system-wide concern in the current UI. Leave it inline until a second site needs warning semantics, then define the token in both light and dark palettes.
+The traffic-light cluster in the faux-terminal frame still uses `bg-(--color-warning,...)` with an oklch fallback so the amber dot matches the original terminal chrome. Prefer `--color-warning` for new UI (the Builds running state already does).
 
 ## Surface chrome
 

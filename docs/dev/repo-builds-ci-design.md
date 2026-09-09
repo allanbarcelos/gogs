@@ -1,6 +1,8 @@
 # Design: repository "Builds" tab and commit status API
 
-Status: draft for review. Branch: `feat/repo-actions-ci`.
+Status: superseded by `docs/advancing/ci-integration.mdx` for the shipped auth
+path (per-repository HMAC secret). This document still describes the data model
+and UI. Branch: `feat/repo-actions-ci`.
 
 ## Summary
 
@@ -47,7 +49,7 @@ whether a commit built.
    already implemented)                             |  on each state transition:
         ^                                           v
         |                  POST /api/v1/repos/:owner/:repo/statuses/:sha
-        |                  Authorization: token <PAT of a CI user>
+        |                  X-Gogs-Signature: sha256=<HMAC of body>
         |                  { state, context, target_url, description }
         |                                           |
         +--------  store commit_status row  <--------+
@@ -60,8 +62,8 @@ whether a commit built.
 ```
 
 Gogs opens no new outbound connection to Jenkins. The only new network path is
-Jenkins calling the Gogs API, authenticated with a personal access token from a
-dedicated CI user that has write access to the repository.
+Jenkins calling the Gogs API, authenticated with the per-repository CI secret
+(`X-Gogs-Signature`) or, optionally, a write-scoped personal access token.
 
 ## Scope of the first PR
 
@@ -88,7 +90,8 @@ Out, tracked as later work:
 - A dedicated Jenkins plugin. The API must be stable enough to make one
   possible, but the plugin is a separate project.
 
-Explicitly never in scope: runners, workflow execution, CI secret management.
+Explicitly never in scope: runners and workflow execution. Each repository has
+a CI secret minted when Builds is enabled (see `docs/advancing/ci-integration.mdx`).
 
 ## Data model
 
@@ -156,7 +159,7 @@ existing CI tooling works unchanged.
 
 | Method | Route                          | Auth                              | Purpose |
 |--------|--------------------------------|-----------------------------------|---------|
-| POST   | `/statuses/:sha`               | `reqToken()` + `reqRepoWriter()`  | create or update a status for a commit |
+| POST   | `/statuses/:sha`               | HMAC `X-Gogs-Signature` or write token | create a status for a commit |
 | GET    | `/commits/:ref/statuses`       | repo read                         | list every status for a ref, all contexts, full history, newest first |
 | GET    | `/commits/:ref/status`         | repo read                         | combined status for a ref plus the latest status per context |
 

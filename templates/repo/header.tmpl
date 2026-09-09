@@ -75,7 +75,7 @@
 					<i class="octicon octicon-git-pull-request"></i> {{.i18n.Tr "repo.pulls"}} <span class="ui {{if not .Repository.NumOpenPulls}}gray{{else}}blue{{end}} small label">{{.Repository.NumOpenPulls}}</span>
 				</a>
 			{{end}}
-			{{if .Repository.EnableCommitStatus}}
+			{{if .Repository.ShowsCommitStatus}}
 				<a class="{{if .PageIsBuilds}}active{{end}} item" href="{{.RepoLink}}/builds">
 					<i class="octicon octicon-check"></i> {{.i18n.Tr "repo.builds"}}
 				</a>
