@@ -1713,6 +1713,8 @@ func DeleteRepository(ownerID, repoID int64) error {
 		&Webhook{RepoID: repoID},
 		&HookTask{RepoID: repoID},
 		&LFSObject{RepoID: repoID},
+		&CommitStatus{RepoID: repoID},
+		&CommitStatusContext{RepoID: repoID},
 	); err != nil {
 		return errors.Newf("deleteBeans: %v", err)
 	}
@@ -1757,12 +1759,6 @@ func DeleteRepository(ownerID, repoID int64) error {
 
 	if err = sess.Commit(); err != nil {
 		return errors.Newf("commit: %v", err)
-	}
-
-	if Handle != nil {
-		if err = Handle.CommitStatuses().DeleteByRepo(context.TODO(), repoID); err != nil {
-			log.Error("Failed to delete commit statuses for repository %d: %v", repoID, err)
-		}
 	}
 
 	// Remove repository files.

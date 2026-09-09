@@ -251,7 +251,11 @@ func commitStatusesCreateMaxContextsConcurrent(t *testing.T, ctx context.Context
 }
 
 func commitStatusesUnmetRequired(t *testing.T, ctx context.Context, s *CommitStatusesStore) {
-	unmet, err := s.UnmetRequiredStatusChecks(ctx, 1, "abc", []string{"jenkins/build"})
+	unmet, err := s.UnmetRequiredStatusChecks(ctx, 1, "", []string{"jenkins/build"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"jenkins/build"}, unmet)
+
+	unmet, err = s.UnmetRequiredStatusChecks(ctx, 1, "abc", []string{"jenkins/build"})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"jenkins/build"}, unmet)
 
