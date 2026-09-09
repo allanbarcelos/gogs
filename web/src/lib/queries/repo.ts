@@ -70,7 +70,8 @@ export interface CommitStatusesData {
 
 // While any status is still pending or running, poll so the page reflects the
 // build finishing without a manual reload.
-const BUILD_POLL_MS = 8000;
+const BUILD_POLL_MS = 15_000;
+const BUILD_POLL_MAX_MS = 30 * 60 * 1000;
 
 function isInFlight(state: CommitStatusState | ""): boolean {
   return state === "pending" || state === "running";
@@ -89,8 +90,11 @@ export function repoBuildsQuery(owner: string, name: string) {
     },
     refetchInterval: (query) => {
       const data = query.state.data;
-      return data && data.groups.some((g) => isInFlight(g.state)) ? BUILD_POLL_MS : false;
+      if (!data || !data.groups.some((g) => isInFlight(g.state))) return false;
+      if (query.state.dataUpdateCount * BUILD_POLL_MS >= BUILD_POLL_MAX_MS) return false;
+      return BUILD_POLL_MS;
     },
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -107,8 +111,11 @@ export function repoCommitStatusesQuery(owner: string, name: string, sha: string
     },
     refetchInterval: (query) => {
       const data = query.state.data;
-      return data && data.latest.some((s) => isInFlight(s.state)) ? BUILD_POLL_MS : false;
+      if (!data || !data.latest.some((s) => isInFlight(s.state))) return false;
+      if (query.state.dataUpdateCount * BUILD_POLL_MS >= BUILD_POLL_MAX_MS) return false;
+      return BUILD_POLL_MS;
     },
+    refetchIntervalInBackground: false,
   });
 }
 

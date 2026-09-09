@@ -82,7 +82,7 @@ func commitStatusAssignment() macaron.Handler {
 		in := commitStatusAuthInput{
 			Private:   repo.IsPrivate,
 			Signature: signature,
-			Secret:    repo.CommitStatusSecret,
+			Secret:    repo.PlainCommitStatusSecret(),
 			Body:      body,
 			TokenAuth: c.IsTokenAuth,
 		}

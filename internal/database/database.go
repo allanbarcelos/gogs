@@ -40,7 +40,7 @@ func newLogWriter() (logger.Writer, error) {
 // ⚠️ WARNING: This list is meant to be read-only.
 var Tables = []any{
 	new(Access), new(AccessToken), new(Action),
-	new(CommitStatus),
+	new(CommitStatus), new(CommitStatusContext),
 	new(EmailAddress),
 	new(Follow),
 	new(LFSObject), new(LoginSource),

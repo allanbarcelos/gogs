@@ -5,6 +5,8 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -47,6 +49,26 @@ func hmacHex(t *testing.T, secret string, body []byte) string {
 	_, err := mac.Write(body)
 	require.NoError(t, err)
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func TestEncryptCommitStatusSecret(t *testing.T) {
+	plain := "abcdefghijklmnopqrstuvwxyz0123456789ABCD"
+	stored, err := encryptCommitStatusSecret(plain)
+	require.NoError(t, err)
+	assert.NotEqual(t, plain, stored)
+	got, err := decryptCommitStatusSecret(stored)
+	require.NoError(t, err)
+	assert.Equal(t, plain, got)
+
+	legacy, err := decryptCommitStatusSecret(plain)
+	require.NoError(t, err)
+	assert.Equal(t, plain, legacy)
+}
+
+func TestParseStatusContexts(t *testing.T) {
+	assert.Equal(t, []string{"jenkins/build", "jenkins/e2e"}, ParseStatusContexts("jenkins/build\njenkins/e2e\njenkins/build"))
+	assert.Equal(t, []string{"a", "b"}, ParseStatusContexts("a, b , ,a"))
+	assert.Empty(t, ParseStatusContexts("  \n  "))
 }
 
 func TestGenerateCommitStatusSecret(t *testing.T) {
@@ -104,6 +126,9 @@ func TestCommitStatuses(t *testing.T) {
 		{"CreateWithCreatorName", commitStatusesCreateWithCreatorName},
 		{"CreateDefaultContext", commitStatusesCreateDefaultContext},
 		{"CreateMaxContexts", commitStatusesCreateMaxContexts},
+		{"CreateMaxContextsConcurrent", commitStatusesCreateMaxContextsConcurrent},
+		{"UnmetRequiredStatusChecks", commitStatusesUnmetRequired},
+		{"ReportAndReadRoundTrip", commitStatusesReportAndReadRoundTrip},
 		{"List", commitStatusesList},
 		{"ListByRepo", commitStatusesListByRepo},
 		{"ListByRecentCommits", commitStatusesListByRecentCommits},
@@ -203,6 +228,61 @@ func commitStatusesCreateMaxContexts(t *testing.T, ctx context.Context, s *Commi
 	repeat.State = CommitStatusSuccess
 	_, err = s.Create(ctx, repeat)
 	require.NoError(t, err)
+}
+
+func commitStatusesCreateMaxContextsConcurrent(t *testing.T, ctx context.Context, s *CommitStatusesStore) {
+	const max = 2
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, _ = s.Create(ctx, CreateCommitStatusOptions{
+				RepoID: 1, CreatorID: 2, CommitSHA: "race", State: CommitStatusPending,
+				Context: fmt.Sprintf("ctx-%d", i), MaxContexts: max,
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	latest, err := s.Latest(ctx, 1, "race")
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(latest), max)
+}
+
+func commitStatusesUnmetRequired(t *testing.T, ctx context.Context, s *CommitStatusesStore) {
+	unmet, err := s.UnmetRequiredStatusChecks(ctx, 1, "abc", []string{"jenkins/build"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"jenkins/build"}, unmet)
+
+	_, err = s.Create(ctx, CreateCommitStatusOptions{RepoID: 1, CreatorID: 2, CommitSHA: "abc", State: CommitStatusSuccess, Context: "jenkins/build"})
+	require.NoError(t, err)
+	unmet, err = s.UnmetRequiredStatusChecks(ctx, 1, "abc", []string{"jenkins/build", "jenkins/e2e"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"jenkins/e2e"}, unmet)
+}
+
+func commitStatusesReportAndReadRoundTrip(t *testing.T, ctx context.Context, s *CommitStatusesStore) {
+	repo := &Repository{ID: 7, EnableCommitStatus: true}
+	require.NoError(t, ensureCommitStatusSecret(repo))
+	plain := repo.PlainCommitStatusSecret()
+	require.Len(t, plain, 40)
+
+	body := []byte(`{"state":"success","context":"jenkins/build"}`)
+	mac := hmac.New(sha256.New, []byte(plain))
+	_, err := mac.Write(body)
+	require.NoError(t, err)
+	sig := hex.EncodeToString(mac.Sum(nil))
+	require.True(t, VerifyCommitStatusSignature(plain, body, "sha256="+sig))
+
+	_, err = s.Create(ctx, CreateCommitStatusOptions{RepoID: 7, CreatorName: "ci", CommitSHA: "deadbeef", State: CommitStatusPending, Context: "jenkins/build"})
+	require.NoError(t, err)
+	_, err = s.Create(ctx, CreateCommitStatusOptions{RepoID: 7, CreatorName: "ci", CommitSHA: "deadbeef", State: CommitStatusSuccess, Context: "jenkins/build"})
+	require.NoError(t, err)
+
+	combined, err := s.CombinedState(ctx, 7, "deadbeef")
+	require.NoError(t, err)
+	assert.Equal(t, CommitStatusSuccess, combined)
 }
 
 func commitStatusesList(t *testing.T, ctx context.Context, s *CommitStatusesStore) {

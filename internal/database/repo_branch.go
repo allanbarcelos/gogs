@@ -107,6 +107,10 @@ type ProtectBranch struct {
 	EnableWhitelist    bool
 	WhitelistUserIDs   string `xorm:"TEXT"`
 	WhitelistTeamIDs   string `xorm:"TEXT"`
+	// RequiredStatusContexts is a newline-separated list of commit status
+	// contexts that must be success before a pull request can merge into this
+	// branch.
+	RequiredStatusContexts string `xorm:"TEXT"`
 }
 
 // GetProtectBranchOfRepoByName returns *ProtectBranch by branch name in given repository.

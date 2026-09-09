@@ -45,7 +45,10 @@ func Settings(c *context.Context) {
 			c.Error(err, "generate commit status secret")
 			return
 		}
-		repo.CommitStatusSecret = secret
+		if err := repo.SetPlainCommitStatusSecret(secret); err != nil {
+			c.Error(err, "encrypt commit status secret")
+			return
+		}
 		if err := database.UpdateRepository(repo, false); err != nil {
 			c.Error(err, "save commit status secret")
 			return
@@ -214,7 +217,10 @@ func SettingsPost(c *context.Context, f form.RepoSetting) {
 				c.Error(err, "generate commit status secret")
 				return
 			}
-			repo.CommitStatusSecret = secret
+			if err := repo.SetPlainCommitStatusSecret(secret); err != nil {
+				c.Error(err, "encrypt commit status secret")
+				return
+			}
 		}
 
 		if err := database.UpdateRepository(repo, false); err != nil {
@@ -232,7 +238,10 @@ func SettingsPost(c *context.Context, f form.RepoSetting) {
 			c.Error(err, "generate commit status secret")
 			return
 		}
-		repo.CommitStatusSecret = secret
+		if err := repo.SetPlainCommitStatusSecret(secret); err != nil {
+			c.Error(err, "encrypt commit status secret")
+			return
+		}
 		if err := database.UpdateRepository(repo, false); err != nil {
 			c.Error(err, "update repository")
 			return
@@ -626,6 +635,7 @@ func SettingsProtectedBranchPost(c *context.Context, f form.ProtectBranch) {
 	protectBranch.Protected = f.Protected
 	protectBranch.RequirePullRequest = f.RequirePullRequest
 	protectBranch.EnableWhitelist = f.EnableWhitelist
+	protectBranch.RequiredStatusContexts = strings.Join(database.ParseStatusContexts(f.RequiredStatusContexts), "\n")
 	if c.Repo.Owner.IsOrganization() {
 		err = database.UpdateOrgProtectBranch(c.Repo.Repository, protectBranch, f.WhitelistUsers, f.WhitelistTeams)
 	} else {

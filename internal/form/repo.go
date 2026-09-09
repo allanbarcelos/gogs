@@ -136,11 +136,12 @@ func (f *RepoSetting) Validate(ctx *macaron.Context, errs binding.Errors) bindin
 //         \/             \/     \/     \/     \/
 
 type ProtectBranch struct {
-	Protected          bool
-	RequirePullRequest bool
-	EnableWhitelist    bool
-	WhitelistUsers     string
-	WhitelistTeams     string
+	Protected              bool
+	RequirePullRequest     bool
+	EnableWhitelist        bool
+	WhitelistUsers         string
+	WhitelistTeams         string
+	RequiredStatusContexts string
 }
 
 func (f *ProtectBranch) Validate(ctx *macaron.Context, errs binding.Errors) binding.Errors {

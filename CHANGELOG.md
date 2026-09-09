@@ -6,7 +6,7 @@ All notable changes to Gogs are documented in this file.
 
 ### Added
 
-- Repositories now have a "Builds" tab that shows the CI outcome of each commit and pull request, fed by an external CI system such as Jenkins. The CI system reports results by signing them with a per-repository CI secret (found in repository settings), so no dedicated user account or access token is needed. A new "status" webhook event fires when a result changes. The feature is configured under `[repository.commit_status]` and can be turned off per repository.
+- Repositories now have a "Builds" tab that shows the CI outcome of each commit and pull request, fed by an external CI system such as Jenkins. The CI system reports results by signing them with a per-repository CI secret (found in repository settings), so no dedicated user account or access token is needed. A new "status" webhook event fires when a result changes. Protected branches can require named status checks to succeed before a pull request is merged. The feature is configured under `[repository.commit_status]` and can be turned off per repository. New repositories have the Builds tab on; existing repositories keep it off until it is enabled in settings.
 
 ### Changed
 

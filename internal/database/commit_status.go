@@ -4,16 +4,19 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/cockroachdb/errors"
 	"gorm.io/gorm"
 	log "unknwon.dev/clog/v2"
 
 	"gogs.io/gogs/internal/conf"
+	"gogs.io/gogs/internal/cryptox"
 	"gogs.io/gogs/internal/errx"
 	"gogs.io/gogs/internal/strx"
 )
@@ -25,7 +28,8 @@ func GenerateCommitStatusSecret() (string, error) {
 }
 
 // ensureCommitStatusSecret mints a CI secret when the builds feature is on and
-// the repository does not have one yet.
+// the repository does not have one yet. The value stored on the repository is
+// ciphertext.
 func ensureCommitStatusSecret(repo *Repository) error {
 	if !repo.EnableCommitStatus || repo.CommitStatusSecret != "" {
 		return nil
@@ -34,8 +38,73 @@ func ensureCommitStatusSecret(repo *Repository) error {
 	if err != nil {
 		return errors.Wrap(err, "generate commit status secret")
 	}
-	repo.CommitStatusSecret = secret
+	return repo.setPlainCommitStatusSecret(secret)
+}
+
+func encryptCommitStatusSecret(plain string) (string, error) {
+	if plain == "" {
+		return "", nil
+	}
+	encrypted, err := cryptox.AESGCMEncrypt(cryptox.MD5Bytes(conf.Security.SecretKey), []byte(plain))
+	if err != nil {
+		return "", errors.Wrap(err, "encrypt commit status secret")
+	}
+	return base64.StdEncoding.EncodeToString(encrypted), nil
+}
+
+func decryptCommitStatusSecret(stored string) (string, error) {
+	if stored == "" {
+		return "", nil
+	}
+	if isLegacyCommitStatusSecret(stored) {
+		return stored, nil
+	}
+	raw, err := base64.StdEncoding.DecodeString(stored)
+	if err != nil {
+		return "", errors.Wrap(err, "decode commit status secret")
+	}
+	plain, err := cryptox.AESGCMDecrypt(cryptox.MD5Bytes(conf.Security.SecretKey), raw)
+	if err != nil {
+		return "", errors.Wrap(err, "decrypt commit status secret")
+	}
+	return string(plain), nil
+}
+
+func isLegacyCommitStatusSecret(stored string) bool {
+	if len(stored) != 40 {
+		return false
+	}
+	for _, r := range stored {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// PlainCommitStatusSecret returns the plaintext CI secret, or "" if missing or
+// if decryption fails.
+func (r *Repository) PlainCommitStatusSecret() string {
+	plain, err := decryptCommitStatusSecret(r.CommitStatusSecret)
+	if err != nil {
+		log.Error("Failed to decrypt commit status secret for repository %d: %v", r.ID, err)
+		return ""
+	}
+	return plain
+}
+
+func (r *Repository) setPlainCommitStatusSecret(plain string) error {
+	encrypted, err := encryptCommitStatusSecret(plain)
+	if err != nil {
+		return err
+	}
+	r.CommitStatusSecret = encrypted
 	return nil
+}
+
+// SetPlainCommitStatusSecret stores the plaintext CI secret encrypted at rest.
+func (r *Repository) SetPlainCommitStatusSecret(plain string) error {
+	return r.setPlainCommitStatusSecret(plain)
 }
 
 // VerifyCommitStatusSignature reports whether "signature" is a valid
@@ -130,6 +199,15 @@ type CommitStatus struct {
 	Updated time.Time `gorm:"-" json:"-"`
 }
 
+// CommitStatusContext is the unique (repository, commit, context) registry
+// used to cap distinct contexts without a race between concurrent reports.
+type CommitStatusContext struct {
+	ID        int64  `gorm:"primaryKey"`
+	RepoID    int64  `gorm:"uniqueIndex:commit_status_context_uniq;not null"`
+	CommitSHA string `gorm:"column:commit_sha;uniqueIndex:commit_status_context_uniq;type:VARCHAR(40);not null"`
+	Context   string `gorm:"uniqueIndex:commit_status_context_uniq;type:VARCHAR(191);not null"`
+}
+
 // BeforeCreate implements the GORM create hook.
 func (s *CommitStatus) BeforeCreate(tx *gorm.DB) error {
 	if s.CreatedUnix == 0 {
@@ -209,29 +287,34 @@ func (s *CommitStatusesStore) Create(ctx context.Context, opts CreateCommitStatu
 
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if opts.MaxContexts > 0 {
-			var contexts []string
-			err := tx.Model(new(CommitStatus)).
-				Where("repo_id = ? AND commit_sha = ?", opts.RepoID, opts.CommitSHA).
-				Distinct().
-				Pluck("context", &contexts).Error
-			if err != nil {
-				return errors.Wrap(err, "list distinct contexts")
+			slot := &CommitStatusContext{
+				RepoID:    opts.RepoID,
+				CommitSHA: opts.CommitSHA,
+				Context:   statusContext,
 			}
-
-			seen := false
-			for _, c := range contexts {
-				if c == statusContext {
-					seen = true
-					break
+			created := true
+			if err := tx.Create(slot).Error; err != nil {
+				if !isUniqueConstraint(err) {
+					return errors.Wrap(err, "register context")
 				}
+				created = false
 			}
-			if !seen && len(contexts) >= opts.MaxContexts {
-				return ErrTooManyCommitStatusContexts{
-					args: errx.Args{
-						"repoID":    opts.RepoID,
-						"commitSHA": opts.CommitSHA,
-						"max":       opts.MaxContexts,
-					},
+			if created {
+				var n int64
+				if err := tx.Model(new(CommitStatusContext)).
+					Where("repo_id = ? AND commit_sha = ?", opts.RepoID, opts.CommitSHA).
+					Count(&n).Error; err != nil {
+					return errors.Wrap(err, "count contexts")
+				}
+				if n > int64(opts.MaxContexts) {
+					_ = tx.Delete(slot).Error
+					return ErrTooManyCommitStatusContexts{
+						args: errx.Args{
+							"repoID":    opts.RepoID,
+							"commitSHA": opts.CommitSHA,
+							"max":       opts.MaxContexts,
+						},
+					}
 				}
 			}
 		}
@@ -300,8 +383,11 @@ func (s *CommitStatusesStore) ListByRecentCommits(ctx context.Context, repoID in
 	return shas, statuses, nil
 }
 
-// DeleteByRepo removes every status row for the given repository.
+// DeleteByRepo removes every status row and context slot for the given repository.
 func (s *CommitStatusesStore) DeleteByRepo(ctx context.Context, repoID int64) error {
+	if err := s.db.WithContext(ctx).Where("repo_id = ?", repoID).Delete(new(CommitStatusContext)).Error; err != nil {
+		return err
+	}
 	return s.db.WithContext(ctx).Where("repo_id = ?", repoID).Delete(new(CommitStatus)).Error
 }
 
@@ -406,6 +492,58 @@ func (s *CommitStatusesStore) PruneContextAttempts(ctx context.Context, keep int
 		removed += result.RowsAffected
 	}
 	return removed, nil
+}
+
+func isUniqueConstraint(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique") || strings.Contains(msg, "duplicate")
+}
+
+// ParseStatusContexts splits a settings field into distinct context names.
+func ParseStatusContexts(raw string) []string {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == '\n' || r == '\r' || r == ','
+	})
+	seen := make(map[string]struct{}, len(parts))
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	return out
+}
+
+// UnmetRequiredStatusChecks returns required contexts that are missing or not
+// success on the given commit. An empty required list means there is no gate.
+func (s *CommitStatusesStore) UnmetRequiredStatusChecks(ctx context.Context, repoID int64, commitSHA string, required []string) ([]string, error) {
+	if len(required) == 0 || commitSHA == "" {
+		return nil, nil
+	}
+	latest, err := s.Latest(ctx, repoID, commitSHA)
+	if err != nil {
+		return nil, err
+	}
+	byContext := make(map[string]CommitStatusState, len(latest))
+	for _, st := range latest {
+		byContext[st.Context] = st.State
+	}
+	var unmet []string
+	for _, ctxName := range required {
+		if byContext[ctxName] != CommitStatusSuccess {
+			unmet = append(unmet, ctxName)
+		}
+	}
+	return unmet, nil
 }
 
 // CleanupCommitStatuses prunes stale commit status rows according to the

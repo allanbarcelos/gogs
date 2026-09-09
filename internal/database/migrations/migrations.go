@@ -63,6 +63,8 @@ var migrations = []Migration{
 	NewMigration("add commit_status.creator_name", addCommitStatusCreatorName),
 	// v23 -> v24:v0.15.0
 	NewMigration("mint commit status secrets for existing repositories", backfillCommitStatusSecrets),
+	// v24 -> v25:v0.15.0
+	NewMigration("encrypt CI secrets and leave existing repositories' Builds tab off", encryptCommitStatusSecretsAndDisableExisting),
 }
 
 var errMigrationSkipped = errors.New("the migration has been skipped")

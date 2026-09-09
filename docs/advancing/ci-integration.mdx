@@ -32,9 +32,10 @@ RETENTION_DAYS = 90
 ## Get the CI secret
 
 Each repository has a per-repository **CI secret**. It is minted when the
-repository is created (or when Builds is turned on, if it was off). Open
-**Settings**, scroll to **CI secret**, and copy it. Use **Regenerate** to rotate
-it; the old value stops working immediately.
+repository is created with Builds on, or when Builds is turned on later. The
+value is stored encrypted with the instance `SECRET_KEY`. Open **Settings**,
+scroll to **CI secret**, and copy it. Use **Regenerate** to rotate it; the old
+value stops working immediately.
 
 No user account and no personal access token are involved. The secret only
 authorizes reporting statuses to that one repository.
@@ -67,6 +68,12 @@ Content-Type: application/json
 - `context` identifies the check, for example `jenkins/build` or `jenkins/e2e`.
   Reporting the same context again adds a new attempt; the most recent one is
   shown. Statuses reported with the secret are attributed to `ci`.
+
+## Required status checks
+
+On a protected branch, list the contexts that must be `success` before a pull
+request can merge (Settings, Branches, then the branch). Merge is refused until
+every listed context has reported success on the pull request head.
 
 Read them back with:
 

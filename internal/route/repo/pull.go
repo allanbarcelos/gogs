@@ -281,32 +281,49 @@ func pullHeadCommitSHA(c *context.Context, pull *database.PullRequest) string {
 // head commit of a pull request, along with the combined state, and stashes
 // them for the conversation template.
 func preparePullCommitStatus(c *context.Context, issue *database.Issue) {
-	repo := c.Repo.Repository
-	if !repo.ShowsCommitStatus() || !issue.IsPull {
+	if !issue.IsPull {
 		return
 	}
 	pull := issue.PullRequest
+	repo := c.Repo.Repository
+	if repo.ShowsCommitStatus() {
+		sha := pullHeadCommitSHA(c, pull)
+		if sha != "" {
+			statuses, err := database.Handle.CommitStatuses().Latest(c.Req.Context(), repo.ID, sha)
+			if err != nil {
+				log.Error("Failed to load commit statuses for pull request head %q: %v", sha, err)
+			} else if len(statuses) > 0 {
+				states := make([]database.CommitStatusState, len(statuses))
+				for i, s := range statuses {
+					states[i] = s.State
+				}
+				c.Data["CommitStatusHeadSHA"] = sha
+				c.Data["CommitStatusState"] = string(database.CombineCommitStatusStates(states...))
+				c.Data["CommitStatuses"] = statuses
+			}
+		}
+	}
+	if unmet := requiredStatusChecksUnmet(c, pull); len(unmet) > 0 {
+		c.Data["RequiredStatusChecksUnmet"] = unmet
+	}
+}
+
+func requiredStatusChecksUnmet(c *context.Context, pull *database.PullRequest) []string {
+	protect, err := database.GetProtectBranchOfRepoByName(c.Repo.Repository.ID, pull.BaseBranch)
+	if err != nil || !protect.Protected {
+		return nil
+	}
+	required := database.ParseStatusContexts(protect.RequiredStatusContexts)
+	if len(required) == 0 {
+		return nil
+	}
 	sha := pullHeadCommitSHA(c, pull)
-	if sha == "" {
-		return
-	}
-
-	statuses, err := database.Handle.CommitStatuses().Latest(c.Req.Context(), repo.ID, sha)
+	unmet, err := database.Handle.CommitStatuses().UnmetRequiredStatusChecks(c.Req.Context(), c.Repo.Repository.ID, sha, required)
 	if err != nil {
-		log.Error("Failed to load commit statuses for pull request head %q: %v", sha, err)
-		return
+		log.Error("Failed to evaluate required status checks for pull request: %v", err)
+		return required
 	}
-	if len(statuses) == 0 {
-		return
-	}
-
-	states := make([]database.CommitStatusState, len(statuses))
-	for i, s := range statuses {
-		states[i] = s.State
-	}
-	c.Data["CommitStatusHeadSHA"] = sha
-	c.Data["CommitStatusState"] = string(database.CombineCommitStatusStates(states...))
-	c.Data["CommitStatuses"] = statuses
+	return unmet
 }
 
 func ViewPullCommits(c *context.Context) {
@@ -484,6 +501,13 @@ func MergePullRequest(c *context.Context) {
 
 	pr.Issue = issue
 	pr.Issue.Repo = c.Repo.Repository
+	pr.BaseRepo = c.Repo.Repository
+	if unmet := requiredStatusChecksUnmet(c, pr); len(unmet) > 0 {
+		c.Flash.Error(c.Tr("repo.pulls.required_checks_missing", strings.Join(unmet, ", ")))
+		c.Redirect(c.Repo.RepoLink + "/pulls/" + strconv.FormatInt(pr.Index, 10))
+		return
+	}
+
 	if err = pr.Merge(c.User, c.Repo.GitRepo, database.MergeStyle(c.Query("merge_style")), c.Query("commit_description")); err != nil {
 		c.Error(err, "merge")
 		return
