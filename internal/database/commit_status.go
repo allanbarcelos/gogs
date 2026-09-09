@@ -7,7 +7,9 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"gorm.io/gorm"
+	log "unknwon.dev/clog/v2"
 
+	"gogs.io/gogs/internal/conf"
 	"gogs.io/gogs/internal/errx"
 )
 
@@ -237,4 +239,90 @@ func (s *CommitStatusesStore) CombinedState(ctx context.Context, repoID int64, c
 		states[i] = st.State
 	}
 	return CombineCommitStatusStates(states...), nil
+}
+
+// DeleteBefore removes every status row created strictly before the given Unix
+// time. It returns the number of rows removed.
+func (s *CommitStatusesStore) DeleteBefore(ctx context.Context, unix int64) (int64, error) {
+	result := s.db.WithContext(ctx).
+		Where("created_unix < ?", unix).
+		Delete(new(CommitStatus))
+	return result.RowsAffected, result.Error
+}
+
+type commitStatusGroup struct {
+	RepoID    int64
+	CommitSHA string
+	Context   string
+}
+
+// PruneContextAttempts keeps at most "keep" most recent rows for each
+// (repository, commit, context) group and removes the rest. It returns the
+// number of rows removed. A non-positive "keep" is a no-op.
+func (s *CommitStatusesStore) PruneContextAttempts(ctx context.Context, keep int) (int64, error) {
+	if keep <= 0 {
+		return 0, nil
+	}
+
+	var groups []commitStatusGroup
+	err := s.db.WithContext(ctx).
+		Model(new(CommitStatus)).
+		Select("repo_id", "commit_sha", "context").
+		Group("repo_id, commit_sha, context").
+		Having("COUNT(*) > ?", keep).
+		Scan(&groups).Error
+	if err != nil {
+		return 0, errors.Wrap(err, "list oversized groups")
+	}
+
+	var removed int64
+	for _, g := range groups {
+		var threshold int64
+		err := s.db.WithContext(ctx).
+			Model(new(CommitStatus)).
+			Where("repo_id = ? AND commit_sha = ? AND context = ?", g.RepoID, g.CommitSHA, g.Context).
+			Order("id DESC").
+			Offset(keep-1).
+			Limit(1).
+			Pluck("id", &threshold).Error
+		if err != nil {
+			return removed, errors.Wrap(err, "find keep threshold")
+		}
+
+		result := s.db.WithContext(ctx).
+			Where("repo_id = ? AND commit_sha = ? AND context = ? AND id < ?", g.RepoID, g.CommitSHA, g.Context, threshold).
+			Delete(new(CommitStatus))
+		if result.Error != nil {
+			return removed, errors.Wrap(result.Error, "delete old attempts")
+		}
+		removed += result.RowsAffected
+	}
+	return removed, nil
+}
+
+// CleanupCommitStatuses prunes stale commit status rows according to the
+// configured retention window and per-context attempt cap. It is safe to call
+// from a cron task.
+func CleanupCommitStatuses() {
+	ctx := context.Background()
+	opts := conf.Repository.CommitStatus
+
+	if opts.RetentionDays > 0 {
+		before := time.Now().AddDate(0, 0, -opts.RetentionDays).Unix()
+		removed, err := Handle.CommitStatuses().DeleteBefore(ctx, before)
+		if err != nil {
+			log.Error("Failed to delete commit statuses older than %d days: %v", opts.RetentionDays, err)
+		} else if removed > 0 {
+			log.Trace("Deleted %d commit statuses older than %d days", removed, opts.RetentionDays)
+		}
+	}
+
+	if opts.MaxAttemptsPerContext > 0 {
+		removed, err := Handle.CommitStatuses().PruneContextAttempts(ctx, opts.MaxAttemptsPerContext)
+		if err != nil {
+			log.Error("Failed to prune commit status attempts: %v", err)
+		} else if removed > 0 {
+			log.Trace("Pruned %d commit status attempts beyond the per-context cap", removed)
+		}
+	}
 }

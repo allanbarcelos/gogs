@@ -7,15 +7,12 @@ import (
 	"github.com/gogs/git-module"
 	log "unknwon.dev/clog/v2"
 
+	"gogs.io/gogs/internal/conf"
 	"gogs.io/gogs/internal/context"
 	"gogs.io/gogs/internal/database"
 	"gogs.io/gogs/internal/gitx"
 	"gogs.io/gogs/internal/route/api/v1/types"
 )
-
-// defaultMaxCommitStatusContexts caps the number of distinct contexts a single
-// commit may carry. Stage 4 replaces this with a configurable value.
-const defaultMaxCommitStatusContexts = 20
 
 // parseCommitStatusState maps a wire state string to a database state. It
 // accepts the GitHub set (pending, success, failure, error) plus the "running"
@@ -86,7 +83,7 @@ func createCommitStatus(c *context.APIContext, form types.CreateStatusOption) {
 		Context:     form.Context,
 		TargetURL:   form.TargetURL,
 		Description: form.Description,
-		MaxContexts: defaultMaxCommitStatusContexts,
+		MaxContexts: conf.Repository.CommitStatus.MaxContextsPerCommit,
 	})
 	if err != nil {
 		if database.IsErrTooManyCommitStatusContexts(err) {

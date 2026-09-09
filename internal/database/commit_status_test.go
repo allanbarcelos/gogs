@@ -65,6 +65,8 @@ func TestCommitStatuses(t *testing.T) {
 		{"List", commitStatusesList},
 		{"Latest", commitStatusesLatest},
 		{"CombinedState", commitStatusesCombinedState},
+		{"DeleteBefore", commitStatusesDeleteBefore},
+		{"PruneContextAttempts", commitStatusesPruneContextAttempts},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Cleanup(func() {
@@ -214,4 +216,53 @@ func commitStatusesCombinedState(t *testing.T, ctx context.Context, s *CommitSta
 	combined, err = s.CombinedState(ctx, 1, "a1b2c3")
 	require.NoError(t, err)
 	assert.Equal(t, CommitStatusFailure, combined)
+}
+
+func commitStatusesDeleteBefore(t *testing.T, ctx context.Context, s *CommitStatusesStore) {
+	old, err := s.Create(ctx, CreateCommitStatusOptions{RepoID: 1, CreatorID: 2, CommitSHA: "a1b2c3", State: CommitStatusSuccess, Context: "old"})
+	require.NoError(t, err)
+	err = s.db.WithContext(ctx).Model(new(CommitStatus)).Where("id = ?", old.ID).Update("created_unix", 1000).Error
+	require.NoError(t, err)
+
+	_, err = s.Create(ctx, CreateCommitStatusOptions{RepoID: 1, CreatorID: 2, CommitSHA: "a1b2c3", State: CommitStatusSuccess, Context: "new"})
+	require.NoError(t, err)
+
+	removed, err := s.DeleteBefore(ctx, 2000)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), removed)
+
+	remaining, err := s.List(ctx, 1, "a1b2c3")
+	require.NoError(t, err)
+	require.Len(t, remaining, 1)
+	assert.Equal(t, "new", remaining[0].Context)
+}
+
+func commitStatusesPruneContextAttempts(t *testing.T, ctx context.Context, s *CommitStatusesStore) {
+	for i := 0; i < 5; i++ {
+		_, err := s.Create(ctx, CreateCommitStatusOptions{RepoID: 1, CreatorID: 2, CommitSHA: "a1b2c3", State: CommitStatusPending, Context: "jenkins/build"})
+		require.NoError(t, err)
+	}
+	for i := 0; i < 2; i++ {
+		_, err := s.Create(ctx, CreateCommitStatusOptions{RepoID: 1, CreatorID: 2, CommitSHA: "a1b2c3", State: CommitStatusPending, Context: "jenkins/e2e"})
+		require.NoError(t, err)
+	}
+
+	// keep <= 0 is a no-op.
+	removed, err := s.PruneContextAttempts(ctx, 0)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), removed)
+
+	removed, err = s.PruneContextAttempts(ctx, 2)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), removed)
+
+	all, err := s.List(ctx, 1, "a1b2c3")
+	require.NoError(t, err)
+
+	perContext := map[string]int{}
+	for _, st := range all {
+		perContext[st.Context]++
+	}
+	assert.Equal(t, 2, perContext["jenkins/build"])
+	assert.Equal(t, 2, perContext["jenkins/e2e"])
 }
