@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -8,6 +9,31 @@ import (
 
 	"gogs.io/gogs/internal/database"
 )
+
+func TestIsAcceptableTargetURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		in   string
+		want bool
+	}{
+		{in: "", want: true},
+		{in: "https://ci.example.com/job/1", want: true},
+		{in: "http://10.0.0.1:8080/build/42", want: true},
+		{in: "HTTPS://CI.EXAMPLE.COM/x", want: true},
+		{in: "javascript:alert(1)", want: false},
+		{in: "data:text/html,<script>", want: false},
+		{in: "ftp://example.com/x", want: false},
+		{in: "/relative/path", want: false},
+		{in: "ci.example.com/no-scheme", want: false},
+		{in: "https://ci.example.com/" + strings.Repeat("a", 2100), want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.in, func(t *testing.T) {
+			assert.Equal(t, tc.want, isAcceptableTargetURL(tc.in))
+		})
+	}
+}
 
 func TestParseCommitStatusState(t *testing.T) {
 	t.Parallel()

@@ -2,8 +2,11 @@ package v1
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/cockroachdb/errors"
 	"github.com/gogs/git-module"
@@ -20,6 +23,16 @@ import (
 const (
 	commitStatusRawBodyKey   = "commitStatusRawBody"
 	commitStatusViaSecretKey = "commitStatusViaSecret"
+
+	// maxCommitStatusBodySize bounds the request body of a status report. A
+	// well-formed payload is well under 1 KiB.
+	maxCommitStatusBodySize = 16 << 10
+	// maxCommitStatusContextLen matches the indexed column width.
+	maxCommitStatusContextLen = 191
+	// maxCommitStatusDescriptionLen keeps descriptions to a single line.
+	maxCommitStatusDescriptionLen = 1000
+	// maxCommitStatusTargetURLLen is a generous cap for a build console URL.
+	maxCommitStatusTargetURLLen = 2000
 )
 
 // commitStatusAssignment loads the repository for a commit status report and
@@ -54,9 +67,13 @@ func commitStatusAssignment() macaron.Handler {
 		c.Repo.Owner = owner
 		c.Repo.Repository = repo
 
-		body, err := c.Req.Body().Bytes()
+		body, err := io.ReadAll(io.LimitReader(c.Req.Request.Body, maxCommitStatusBodySize+1))
 		if err != nil {
 			c.Error(err, "read request body")
+			return
+		}
+		if len(body) > maxCommitStatusBodySize {
+			c.ErrorStatus(http.StatusRequestEntityTooLarge, errors.New("Request body is too large."))
 			return
 		}
 		c.Data[commitStatusRawBodyKey] = body
@@ -133,6 +150,28 @@ func mustEnableCommitStatus(c *context.APIContext) {
 // ciCreatorName labels statuses reported with the repository CI secret.
 const ciCreatorName = "ci"
 
+// isAcceptableTargetURL reports whether a status target URL is safe to store
+// and later render as a link. An empty value is allowed; anything else must be
+// an absolute http or https URL within the length cap. This rejects
+// "javascript:" and other script-bearing schemes.
+func isAcceptableTargetURL(raw string) bool {
+	if raw == "" {
+		return true
+	}
+	if len(raw) > maxCommitStatusTargetURLLen {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || !u.IsAbs() {
+		return false
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		return true
+	}
+	return false
+}
+
 // createCommitStatus reports a CI check outcome for a commit. It runs behind
 // commitStatusAssignment, which has loaded the repository, buffered the raw
 // body, and authenticated the request.
@@ -149,6 +188,20 @@ func createCommitStatus(c *context.APIContext) {
 	state, ok := parseCommitStatusState(form.State)
 	if !ok {
 		c.ErrorStatus(http.StatusUnprocessableEntity, errors.New("Invalid state, must be one of: pending, running, success, failure, error."))
+		return
+	}
+
+	form.Context = strings.TrimSpace(form.Context)
+	if utf8.RuneCountInString(form.Context) > maxCommitStatusContextLen {
+		c.ErrorStatus(http.StatusUnprocessableEntity, errors.New("Context is too long."))
+		return
+	}
+	if utf8.RuneCountInString(form.Description) > maxCommitStatusDescriptionLen {
+		c.ErrorStatus(http.StatusUnprocessableEntity, errors.New("Description is too long."))
+		return
+	}
+	if !isAcceptableTargetURL(form.TargetURL) {
+		c.ErrorStatus(http.StatusUnprocessableEntity, errors.New("target_url must be an absolute http or https URL."))
 		return
 	}
 
