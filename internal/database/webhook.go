@@ -726,6 +726,10 @@ func (t *HookTask) deliver() {
 		Header("X-Gogs-Signature", t.Signature).
 		Header("X-Gogs-Event", string(t.EventType)).
 		SetTLSClientConfig(&tls.Config{InsecureSkipVerify: conf.Webhook.SkipTLSVerify}).
+		// The hostname check above resolves DNS once; the connection resolves it
+		// again. A guarded dialer closes that rebinding window by connecting
+		// straight to a vetted IP.
+		SetTransport(netx.SafeHTTPTransport(conf.Security.LocalNetworkAllowlist, timeout, timeout)).
 		SetCheckRedirect(func(req *http.Request, _ []*http.Request) error {
 			// The webhook target is explicitly configured by the user, so any
 			// redirect would silently retarget the signed payload. Refuse all

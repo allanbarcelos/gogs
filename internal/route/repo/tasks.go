@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"crypto/subtle"
 	"net/http"
 
 	"gopkg.in/macaron.v1"
@@ -35,7 +36,7 @@ func TriggerTask(c *macaron.Context) {
 
 	// 🚨 SECURITY: No need to check existence of the repository if the client
 	// can't even get the valid secret. Mostly likely not a legitimate request.
-	if secret != cryptox.MD5(owner.Salt) {
+	if subtle.ConstantTimeCompare([]byte(secret), []byte(cryptox.MD5(owner.Salt))) != 1 {
 		c.Error(http.StatusBadRequest, "Invalid secret")
 		return
 	}

@@ -1,7 +1,9 @@
 package tool
 
 import (
-	"crypto/sha1"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -76,7 +78,7 @@ func VerifyTimeLimitCode(data string, minutes int, code string) bool {
 
 	// right active code
 	retCode := CreateTimeLimitCode(data, minutes, start)
-	if retCode == code && minutes > 0 {
+	if subtle.ConstantTimeCompare([]byte(retCode), []byte(code)) == 1 && minutes > 0 {
 		// check time is expired or not
 		before, _ := time.ParseInLocation("200601021504", start, time.Local)
 		now := time.Now()
@@ -88,10 +90,14 @@ func VerifyTimeLimitCode(data string, minutes int, code string) bool {
 	return false
 }
 
-const TimeLimitCodeLength = 12 + 6 + 40
+// TimeLimitCodeLength is the length of the code prefix returned by
+// [CreateTimeLimitCode]: 12 for the start timestamp, 6 for the minutes, and 64
+// for the HMAC-SHA256 hex digest.
+const TimeLimitCodeLength = 12 + 6 + 64
 
 // CreateTimeLimitCode generates a time limit code based on given input data.
-// Format: 12 length date time string + 6 minutes string + 40 sha1 encoded string
+// Format: 12 length date time string + 6 minutes string + 64 length
+// HMAC-SHA256 hex digest keyed by the instance secret.
 func CreateTimeLimitCode(data string, minutes int, startInf any) string {
 	format := "200601021504"
 
@@ -112,10 +118,12 @@ func CreateTimeLimitCode(data string, minutes int, startInf any) string {
 	end = start.Add(time.Minute * time.Duration(minutes))
 	endStr = end.Format(format)
 
-	// create sha1 encode string
-	sh := sha1.New()
-	_, _ = sh.Write([]byte(data + conf.Security.SecretKey + startStr + endStr + strconv.Itoa(minutes)))
-	encoded := hex.EncodeToString(sh.Sum(nil))
+	// Bind the payload to the instance secret with HMAC-SHA256. A bare hash of
+	// "data + SecretKey + ..." is a secret-prefix construction that is weaker
+	// than a real MAC.
+	mac := hmac.New(sha256.New, []byte(conf.Security.SecretKey))
+	_, _ = mac.Write([]byte(data + startStr + endStr + strconv.Itoa(minutes)))
+	encoded := hex.EncodeToString(mac.Sum(nil))
 
 	code := fmt.Sprintf("%s%06d%s", startStr, minutes, encoded)
 	return code

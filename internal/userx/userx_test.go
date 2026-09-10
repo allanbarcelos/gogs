@@ -1,12 +1,16 @@
 package userx
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/pbkdf2"
 
 	"gogs.io/gogs/internal/conf"
 	"gogs.io/gogs/internal/osx"
@@ -103,79 +107,44 @@ func TestSaveAvatar(t *testing.T) {
 }
 
 func TestEncodePassword(t *testing.T) {
-	want := EncodePassword("123456", "rands")
-	tests := []struct {
-		name      string
-		password  string
-		rands     string
-		wantEqual bool
-	}{
-		{
-			name:      "correct",
-			password:  "123456",
-			rands:     "rands",
-			wantEqual: true,
-		},
+	encoded, err := EncodePassword("123456")
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(encoded, "$argon2id$"))
 
-		{
-			name:      "wrong password",
-			password:  "111333",
-			rands:     "rands",
-			wantEqual: false,
-		},
-		{
-			name:      "wrong salt",
-			password:  "111333",
-			rands:     "salt",
-			wantEqual: false,
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got := EncodePassword(test.password, test.rands)
-			if test.wantEqual {
-				assert.Equal(t, want, got)
-			} else {
-				assert.NotEqual(t, want, got)
-			}
-		})
-	}
+	// Every call uses a fresh random salt, so the output must never repeat.
+	other, err := EncodePassword("123456")
+	require.NoError(t, err)
+	assert.NotEqual(t, encoded, other)
+
+	assert.False(t, PasswordNeedsUpgrade(encoded))
 }
 
 func TestValidatePassword(t *testing.T) {
-	want := EncodePassword("123456", "rands")
-	tests := []struct {
-		name      string
-		password  string
-		rands     string
-		wantEqual bool
-	}{
-		{
-			name:      "correct",
-			password:  "123456",
-			rands:     "rands",
-			wantEqual: true,
-		},
+	t.Run("argon2id round trip", func(t *testing.T) {
+		encoded, err := EncodePassword("123456")
+		require.NoError(t, err)
 
-		{
-			name:      "wrong password",
-			password:  "111333",
-			rands:     "rands",
-			wantEqual: false,
-		},
-		{
-			name:      "wrong salt",
-			password:  "111333",
-			rands:     "salt",
-			wantEqual: false,
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got := ValidatePassword(want, test.rands, test.password)
-			assert.Equal(t, test.wantEqual, got)
-		})
-	}
+		assert.True(t, ValidatePassword(encoded, "", "123456"))
+		assert.False(t, ValidatePassword(encoded, "", "111333"))
+		// The user salt column is not consulted for argon2id hashes.
+		assert.True(t, ValidatePassword(encoded, "ignored-salt", "123456"))
+	})
+
+	t.Run("legacy PBKDF2 hex still verifies", func(t *testing.T) {
+		// A hash produced by the pre-Argon2id scheme (PBKDF2-HMAC-SHA256,
+		// 10000 iterations, 50-byte key) for password "123456" and salt "rands".
+		legacy := fmt.Sprintf("%x", pbkdf2.Key([]byte("123456"), []byte("rands"), 10000, 50, sha256.New))
+
+		assert.True(t, ValidatePassword(legacy, "rands", "123456"))
+		assert.False(t, ValidatePassword(legacy, "rands", "111333"))
+		assert.False(t, ValidatePassword(legacy, "wrong-salt", "123456"))
+		assert.True(t, PasswordNeedsUpgrade(legacy))
+	})
+
+	t.Run("malformed argon2id hash is rejected", func(t *testing.T) {
+		assert.False(t, ValidatePassword("$argon2id$v=19$m=19456,t=2,p=1$bad$bad", "", "123456"))
+		assert.False(t, ValidatePassword("$argon2id$garbage", "", "123456"))
+	})
 }
 
 func TestMailResendCacheKey(t *testing.T) {
