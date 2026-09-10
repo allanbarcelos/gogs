@@ -1,8 +1,14 @@
 package netx
 
 import (
+	"context"
 	"fmt"
 	"net"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/cockroachdb/errors"
 )
 
 var localCIDRs []*net.IPNet
@@ -58,11 +64,114 @@ func IsBlockedLocalHostname(hostname string, allowlist []string) bool {
 		return true
 	}
 	for _, ip := range ips {
-		for _, cidr := range localCIDRs {
-			if cidr.Contains(ip) {
-				return true
-			}
+		if isBlockedIP(ip) {
+			return true
 		}
 	}
 	return false
+}
+
+func isBlockedIP(ip net.IP) bool {
+	for _, cidr := range localCIDRs {
+		if cidr.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// allowlistPermitsIP reports whether an allowlist entry explicitly permits ip:
+// "*", an exact IP literal, or a CIDR block that contains it. Host name entries
+// are handled by the caller before resolution.
+func allowlistPermitsIP(ip net.IP, allowlist []string) bool {
+	for _, entry := range allowlist {
+		if entry == "*" {
+			return true
+		}
+		if entryIP := net.ParseIP(entry); entryIP != nil {
+			if entryIP.Equal(ip) {
+				return true
+			}
+			continue
+		}
+		if _, cidr, err := net.ParseCIDR(entry); err == nil && cidr.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// SafeDialContext returns a net.Dialer.DialContext function that refuses to
+// connect to implicitly blocked local network addresses. It resolves the host
+// itself and dials a vetted IP directly, so a name that resolves to a public
+// address at pre-flight check time and to a private one at connect time (DNS
+// rebinding) cannot get through. An allowlist entry that matches the requested
+// host by name, or "*", skips the check; entries may also be an IP or CIDR.
+func SafeDialContext(allowlist []string, connectTimeout, readWriteTimeout time.Duration) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	dialer := &net.Dialer{Timeout: connectTimeout}
+
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
+		}
+
+		dial := func(address string) (net.Conn, error) {
+			conn, err := dialer.DialContext(ctx, network, address)
+			if err != nil {
+				return nil, err
+			}
+			if readWriteTimeout > 0 {
+				if err := conn.SetDeadline(time.Now().Add(readWriteTimeout)); err != nil {
+					_ = conn.Close()
+					return nil, err
+				}
+			}
+			return conn, nil
+		}
+
+		for _, entry := range allowlist {
+			if entry == "*" || strings.EqualFold(entry, host) {
+				return dial(addr)
+			}
+		}
+
+		ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		if err != nil {
+			return nil, err
+		}
+
+		var lastErr error
+		for _, ipAddr := range ips {
+			ip := ipAddr.IP
+			if v4 := ip.To4(); v4 != nil {
+				ip = v4
+			}
+			if isBlockedIP(ip) && !allowlistPermitsIP(ip, allowlist) {
+				lastErr = errors.Newf("dial %s: resolved address %s is in a blocked local network", host, ip)
+				continue
+			}
+			conn, err := dial(net.JoinHostPort(ip.String(), port))
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			return conn, nil
+		}
+		if lastErr == nil {
+			lastErr = errors.Newf("dial %s: no address resolved", host)
+		}
+		return nil, lastErr
+	}
+}
+
+// SafeHTTPTransport returns an *http.Transport whose DialContext is guarded by
+// [SafeDialContext]. TLS configuration is left nil so callers (or
+// internal/httplib) populate it; the environment proxy is honored to preserve
+// existing outbound behavior.
+func SafeHTTPTransport(allowlist []string, connectTimeout, readWriteTimeout time.Duration) *http.Transport {
+	return &http.Transport{
+		Proxy:       http.ProxyFromEnvironment,
+		DialContext: SafeDialContext(allowlist, connectTimeout, readWriteTimeout),
+	}
 }
