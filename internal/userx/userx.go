@@ -2,8 +2,10 @@ package userx
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"image"
@@ -14,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/cockroachdb/errors"
+	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/pbkdf2"
 	"golang.org/x/image/draw"
 
@@ -119,17 +122,101 @@ func SaveAvatar(userID int64, data []byte) error {
 	return nil
 }
 
-// EncodePassword encodes password using PBKDF2 SHA256 with given salt.
-func EncodePassword(password, salt string) string {
-	newPasswd := pbkdf2.Key([]byte(password), []byte(salt), 10000, 50, sha256.New)
-	return fmt.Sprintf("%x", newPasswd)
+// Argon2id parameters for newly encoded passwords. These meet the OWASP
+// minimum (19 MiB of memory, 2 iterations, 1 lane). They can be raised later
+// without invalidating stored hashes because every hash records the cost it
+// was created with.
+const (
+	argon2idMemoryKiB   = 19 * 1024
+	argon2idIterations  = 2
+	argon2idParallelism = 1
+	argon2idSaltLength  = 16
+	argon2idKeyLength   = 32
+)
+
+// argon2idPrefix marks a password hash produced by [EncodePassword]. Anything
+// without it is a legacy PBKDF2-HMAC-SHA256 hex digest keyed by the user's
+// separate salt column.
+const argon2idPrefix = "$argon2id$"
+
+// EncodePassword hashes password with Argon2id and returns a PHC-formatted
+// string that carries the algorithm, its parameters, and a fresh random salt.
+// The salt argument of the legacy signature is gone: Argon2id embeds its own.
+func EncodePassword(password string) (string, error) {
+	salt := make([]byte, argon2idSaltLength)
+	if _, err := rand.Read(salt); err != nil {
+		return "", errors.Wrap(err, "read random salt")
+	}
+	key := argon2.IDKey(
+		[]byte(password), salt,
+		argon2idIterations, argon2idMemoryKiB, argon2idParallelism, argon2idKeyLength,
+	)
+	return fmt.Sprintf("%sv=%d$m=%d,t=%d,p=%d$%s$%s",
+		argon2idPrefix, argon2.Version,
+		argon2idMemoryKiB, argon2idIterations, argon2idParallelism,
+		base64.RawStdEncoding.EncodeToString(salt),
+		base64.RawStdEncoding.EncodeToString(key),
+	), nil
 }
 
-// ValidatePassword returns true if the given password matches the encoded
-// version with given salt.
+// ValidatePassword reports whether password matches encoded. It accepts both
+// the current Argon2id format and the legacy PBKDF2 hex format, the latter
+// keyed by salt. Both comparisons run in constant time.
 func ValidatePassword(encoded, salt, password string) bool {
-	got := EncodePassword(password, salt)
+	if strings.HasPrefix(encoded, argon2idPrefix) {
+		return validateArgon2idPassword(encoded, password)
+	}
+	return validateLegacyPassword(encoded, salt, password)
+}
+
+// PasswordNeedsUpgrade reports whether encoded uses an outdated scheme and
+// should be re-hashed with [EncodePassword] after the password is next known
+// in plaintext (i.e. on a successful login).
+func PasswordNeedsUpgrade(encoded string) bool {
+	return !strings.HasPrefix(encoded, argon2idPrefix)
+}
+
+func validateLegacyPassword(encoded, salt, password string) bool {
+	got := fmt.Sprintf("%x", pbkdf2.Key([]byte(password), []byte(salt), 10000, 50, sha256.New))
 	return subtle.ConstantTimeCompare([]byte(encoded), []byte(got)) == 1
+}
+
+func validateArgon2idPassword(encoded, password string) bool {
+	// $argon2id$v=19$m=19456,t=2,p=1$<base64 salt>$<base64 key>
+	rest, ok := strings.CutPrefix(encoded, argon2idPrefix)
+	if !ok {
+		return false
+	}
+	parts := strings.Split(rest, "$")
+	if len(parts) != 4 {
+		return false
+	}
+
+	var version int
+	if _, err := fmt.Sscanf(parts[0], "v=%d", &version); err != nil || version != argon2.Version {
+		return false
+	}
+
+	var memory, iterations uint32
+	var parallelism uint8
+	if _, err := fmt.Sscanf(parts[1], "m=%d,t=%d,p=%d", &memory, &iterations, &parallelism); err != nil {
+		return false
+	}
+	if memory == 0 || iterations == 0 || parallelism == 0 {
+		return false
+	}
+
+	salt, err := base64.RawStdEncoding.DecodeString(parts[2])
+	if err != nil {
+		return false
+	}
+	want, err := base64.RawStdEncoding.DecodeString(parts[3])
+	if err != nil || len(want) == 0 {
+		return false
+	}
+
+	got := argon2.IDKey([]byte(password), salt, iterations, memory, parallelism, uint32(len(want)))
+	return subtle.ConstantTimeCompare(want, got) == 1
 }
 
 // MailResendCacheKey returns the key used for caching mail resend.

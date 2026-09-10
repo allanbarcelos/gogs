@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/pbkdf2"
 	"gorm.io/gorm"
 
 	"gogs.io/gogs/internal/auth"
@@ -168,6 +170,25 @@ func usersAuthenticate(t *testing.T, ctx context.Context, s *UsersStore) {
 		gotErr := fmt.Sprintf("%v", err)
 		wantErr := ErrLoginSourceMismatch{args: map[string]any{"actual": 0, "expect": 1}}.Error()
 		assert.Equal(t, wantErr, gotErr)
+	})
+
+	t.Run("legacy password hash is upgraded on login", func(t *testing.T) {
+		legacyPassword := "legacy-secret"
+		legacySalt := "0123456789"
+		legacyHash := fmt.Sprintf("%x", pbkdf2.Key([]byte(legacyPassword), []byte(legacySalt), 10000, 50, sha256.New))
+		require.NoError(t, s.db.WithContext(ctx).Model(&User{}).Where("id = ?", alice.ID).
+			Updates(map[string]any{"passwd": legacyHash, "salt": legacySalt}).Error)
+
+		user, err := s.Authenticate(ctx, alice.Name, legacyPassword, -1)
+		require.NoError(t, err)
+		assert.True(t, strings.HasPrefix(user.Password, "$argon2id$"), "hash should be upgraded in the returned user")
+
+		reloaded, err := s.GetByID(ctx, alice.ID)
+		require.NoError(t, err)
+		assert.True(t, strings.HasPrefix(reloaded.Password, "$argon2id$"), "hash should be persisted")
+
+		_, err = s.Authenticate(ctx, alice.Name, legacyPassword, -1)
+		require.NoError(t, err, "the same password still authenticates against the upgraded hash")
 	})
 
 	t.Run("via login source", func(t *testing.T) {

@@ -91,6 +91,7 @@ func (s *UsersStore) Authenticate(ctx context.Context, login, password string, l
 		// Validate password hash fetched from database for local accounts.
 		if user.IsLocal() {
 			if userx.ValidatePassword(user.Password, user.Salt, password) {
+				s.upgradePasswordHash(ctx, user, password)
 				return user, nil
 			}
 
@@ -138,6 +139,29 @@ func (s *UsersStore) Authenticate(ctx context.Context, login, password string, l
 			Admin:       extAccount.Admin,
 		},
 	)
+}
+
+// upgradePasswordHash re-hashes the just-verified plaintext password with the
+// current scheme when the stored hash uses an outdated one. A failure here must
+// not fail the login, so it is only logged.
+func (s *UsersStore) upgradePasswordHash(ctx context.Context, user *User, password string) {
+	if !userx.PasswordNeedsUpgrade(user.Password) {
+		return
+	}
+	encoded, err := userx.EncodePassword(password)
+	if err != nil {
+		log.Error("Failed to re-hash password for user [id: %d]: %v", user.ID, err)
+		return
+	}
+	err = s.db.WithContext(ctx).
+		Model(&User{}).
+		Where("id = ?", user.ID).
+		Update("passwd", encoded).Error
+	if err != nil {
+		log.Error("Failed to store upgraded password hash for user [id: %d]: %v", user.ID, err)
+		return
+	}
+	user.Password = encoded
 }
 
 // ChangeUsername changes the username of the given user and updates all
@@ -334,7 +358,10 @@ func (s *UsersStore) Create(ctx context.Context, username, email string, opts Cr
 	if err != nil {
 		return nil, err
 	}
-	user.Password = userx.EncodePassword(user.Password, user.Salt)
+	user.Password, err = userx.EncodePassword(user.Password)
+	if err != nil {
+		return nil, errors.Wrap(err, "encode password")
+	}
 
 	return user, s.db.WithContext(ctx).Create(user).Error
 }
@@ -924,8 +951,12 @@ func (s *UsersStore) Update(ctx context.Context, userID int64, opts UpdateUserOp
 		if err != nil {
 			return errors.Wrap(err, "generate salt")
 		}
+		encoded, err := userx.EncodePassword(*opts.Password)
+		if err != nil {
+			return errors.Wrap(err, "encode password")
+		}
 		updates["salt"] = salt
-		updates["passwd"] = userx.EncodePassword(*opts.Password, salt)
+		updates["passwd"] = encoded
 		opts.GenerateNewRands = true
 	}
 	if opts.GenerateNewRands {
