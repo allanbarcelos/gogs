@@ -16,6 +16,10 @@ All notable changes to Gogs are documented in this file.
 - _Security:_ Argument injection through a crafted commit or branch reference on several repository API endpoints allowed an authenticated user with read access to leak internal server details to the error logs. [#8393](https://github.com/gogs/gogs/pull/8393) - [GHSA-mxrh-2rxr-6mqc](https://github.com/gogs/gogs/security/advisories/GHSA-mxrh-2rxr-6mqc)
 - _Security:_ Argument injection through a crafted branch name when creating a pull request allowed an authenticated user with write access to write files to arbitrary paths on the server. [#8390](https://github.com/gogs/gogs/pull/8390) - [GHSA-2grc-qr7q-6m36](https://github.com/gogs/gogs/security/advisories/GHSA-2grc-qr7q-6m36)
 - _Security:_ The "remember me" auto-login cookie was derived from database columns, so an attacker with a database dump could forge a valid cookie for any user. The auto-login cookie path has been removed entirely. Persistence is now provided by the server-issued session cookie. [#8289](https://github.com/gogs/gogs/pull/8289) - [GHSA-4pph-25p3-pw73](https://github.com/gogs/gogs/security/advisories/GHSA-4pph-25p3-pw73)
+- _Security:_ Local account passwords were stored with a low-cost key derivation, making offline cracking of a leaked database faster than it should be. Passwords are now hashed with Argon2id. Existing passwords are re-hashed automatically the next time each user signs in, with no action required.
+- _Security:_ Account activation and password-reset codes used a weak keyed digest and were compared in non-constant time. They now use HMAC-SHA256 with a constant-time check. Codes issued before upgrading stop working and need to be requested again.
+- _Security:_ Webhook deliveries could still reach an internal service if its DNS name resolved to a public address during validation and to a private one when the request was sent. Deliveries now connect directly to an address that has been checked against the blocked local network ranges.
+- _Security:_ The repository task-trigger endpoint compared its secret in non-constant time.
 
 ### Removed
 
